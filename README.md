@@ -8,6 +8,24 @@
 
 <p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
 
+## 🚀 Enhanced Fork Features
+
+This fork includes additional features beyond the upstream Crush repository:
+
+- **Claude Max/Pro Subscription Support**: OAuth-based authentication for Claude Max and Pro subscribers, providing access to premium models including Claude Opus 4.1 and Claude Sonnet 4 at zero cost
+- **Enhanced Provider System**: Extended provider architecture with OAuth support and automatic token refresh
+- **Premium Model Access**: Access to the latest Claude models (Claude Opus 4.1, Claude Opus 4, Claude Sonnet 4) through subscription-based authentication
+
+> **⚠️ EXPERIMENTAL DISCLAIMER**
+> 
+> This fork is an **experimental implementation** that extends Crush with Claude Max/Pro subscription support. By using this software:
+> - You accept **full responsibility** for any consequences or issues that may arise
+> - You understand this is **not officially supported** by Charm or Anthropic
+> - You acknowledge this is **experimental software** that may have bugs or unexpected behavior
+> - You agree to use this software **at your own risk**
+> 
+> While this implementation aims to comply with Anthropic's Terms of Service through proper OAuth authentication, users are responsible for ensuring their usage complies with all applicable terms and conditions.
+
 <p align="center"><img width="800" alt="Crush Demo" src="https://github.com/user-attachments/assets/58280caf-851b-470a-b6f7-d5c4ea8a1968" /></p>
 
 ## Features
@@ -103,13 +121,60 @@ Or, download it:
 Or just install it with Go:
 
 ```
-go install github.com/charmbracelet/crush@latest
+go install github.com/BumpyClock/crush@latest
 ```
 
 > [!WARNING]
 > Productivity may increase when using Crush and you may find yourself nerd
 > sniped when first using the application. If the symptoms persist, join the
 > [Discord][discord] and nerd snipe the rest of us.
+
+## Claude Max/Pro Subscription Support
+
+This fork includes support for Claude Max and Pro subscribers to use their subscription directly through OAuth authentication:
+
+### Setting Up Claude Max/Pro Access
+
+1. **Start Crush**: Run `crush` and select the "Claude Max/Pro Subscription" provider when prompted
+2. **OAuth Authentication**: You'll be guided through a secure OAuth flow to authenticate with your Claude account
+3. **Access Premium Models**: Once authenticated, you'll have access to premium models at zero cost:
+   - Claude Opus 4.1
+   - Claude Opus 4
+   - Claude Sonnet 4
+   - Claude 3.7 Sonnet
+   - Claude 3.5 Sonnet (New & Old)
+   - Claude 3.5 Haiku
+
+### Features
+
+- **Zero Cost**: Use your existing subscription without per-token charges
+- **Automatic Token Refresh**: Seamless re-authentication when tokens expire
+- **Latest Models**: Access to the newest Claude models as they become available
+- **Secure Authentication**: OAuth 2.0 with PKCE for secure credential management
+
+### Configuration
+
+The Claude Max/Pro provider can be configured like any other provider:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "claudesub": {
+      "models": [
+        {
+          "id": "claude-opus-4-1-20250805",
+          "name": "Claude Opus 4.1",
+          "context_window": 200000,
+          "default_max_tokens": 32000,
+          "can_reason": true,
+          "supports_attachments": true
+        }
+      ]
+    }
+  }
+}
+```
 
 ## Getting Started
 
@@ -480,6 +545,29 @@ We’d love to hear your thoughts on this project. Need help? We gotchu. You can
 - [The Fediverse](https://mastodon.social/@charmcli)
 
 [discord]: https://charm.land/discord
+
+---
+
+## Fork Enhancements
+
+This fork includes enhanced Claude Max/Pro subscription support not available in the upstream repository:
+
+### Claude Max/Pro OAuth Integration
+
+Unlike the upstream version, this fork provides **official OAuth-based authentication** for Claude Max and Pro subscribers:
+
+- **Secure Authentication**: OAuth 2.0 with PKCE for secure credential management
+- **Zero Cost Access**: Use your existing subscription without per-token charges
+- **Premium Models**: Access to Claude Opus 4.1, Claude Opus 4, Claude Sonnet 4, and other premium models
+- **Automatic Token Refresh**: Seamless re-authentication when tokens expire
+- **Latest Model Support**: Access to the newest Claude models as they become available
+
+To use Claude Max/Pro with this fork:
+1. Run `crush` and select "Claude Max/Pro Subscription" as your provider
+2. Complete the secure OAuth flow when prompted
+3. Enjoy zero-cost access to premium Claude models
+
+This implementation respects Anthropic's Terms of Service and provides a sustainable way for subscription users to access their benefits through Crush.
 
 ## License
 
