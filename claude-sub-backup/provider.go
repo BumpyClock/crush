@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/home"
 )
 
 type ProviderClient interface {
@@ -42,7 +41,7 @@ func providerCacheFileData() string {
 		return filepath.Join(localAppData, appName, "providers.json")
 	}
 
-	return filepath.Join(home.Dir(), ".local", "share", appName, "providers.json")
+	return filepath.Join(os.Getenv("HOME"), ".local", "share", appName, "providers.json")
 }
 
 func saveProvidersInCache(path string, providers []catwalk.Provider) error {
@@ -94,63 +93,42 @@ func loadProvidersOnce(client ProviderClient, path string) ([]catwalk.Provider, 
 }
 
 func loadProviders(client ProviderClient, path string) (providerList []catwalk.Provider, err error) {
+	// Get catwalk providers (existing behavior)
+	var catwalkProviders []catwalk.Provider
+	
 	// if cache is not stale, load from it
-	stale, _ := isCacheStale(path)
+	stale, exists := isCacheStale(path)
 	if !stale {
 		slog.Info("Using cached provider data", "path", path)
-		providerList, err = loadProvidersFromCache(path)
-		if len(providerList) > 0 && err == nil {
+		catwalkProviders, err = loadProvidersFromCache(path)
+		if len(catwalkProviders) > 0 && err == nil {
 			go func() {
-				slog.Info("Updating provider cache in background", "path", path)
+				slog.Info("Updating provider cache in background")
 				updated, uerr := client.GetProviders()
 				if len(updated) > 0 && uerr == nil {
 					_ = saveProvidersInCache(path, updated)
 				}
 			}()
-			
-			// Add OAuth providers to cached list
-			cfg := Get()
-			if cfg != nil {
-				dataDirectory := cfg.Options.DataDirectory
-				oauthProviders := GetOAuthProviders(dataDirectory)
-				
-				// Convert OAuth providers to catwalk.Provider format and add them
-				for _, oauthProvider := range oauthProviders {
-					displayProvider := oauthProvider.ToDisplayProvider()
-					providerList = append(providerList, displayProvider)
-				}
-				
-				slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
-			}
-			return
 		}
 	}
-
-	slog.Info("Getting live provider data", "path", path)
-	providerList, err = client.GetProviders()
-	if len(providerList) > 0 && err == nil {
-		err = saveProvidersInCache(path, providerList)
-		
-		// Add OAuth providers to live list
-		cfg := Get()
-		if cfg != nil {
-			dataDirectory := cfg.Options.DataDirectory
-			oauthProviders := GetOAuthProviders(dataDirectory)
-			
-			// Convert OAuth providers to catwalk.Provider format and add them
-			for _, oauthProvider := range oauthProviders {
-				displayProvider := oauthProvider.ToDisplayProvider()
-				providerList = append(providerList, displayProvider)
-			}
-			
-			slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
-		}
-		return
-	}
-	slog.Info("Loading provider data from cache", "path", path)
-	providerList, err = loadProvidersFromCache(path)
 	
-	// Add OAuth providers to fallback cache list
+	// If we don't have cached providers or cache is stale, get live data
+	if len(catwalkProviders) == 0 || stale {
+		slog.Info("Getting live provider data")
+		catwalkProviders, err = client.GetProviders()
+		if len(catwalkProviders) > 0 && err == nil {
+			err = saveProvidersInCache(path, catwalkProviders)
+		} else if exists {
+			// Fallback to cache if live fetch fails
+			catwalkProviders, err = loadProvidersFromCache(path)
+		}
+		
+		if len(catwalkProviders) == 0 && err != nil {
+			err = fmt.Errorf("failed to load providers")
+		}
+	}
+	
+	// Get OAuth providers
 	cfg := Get()
 	if cfg != nil {
 		dataDirectory := cfg.Options.DataDirectory
@@ -159,12 +137,13 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 		// Convert OAuth providers to catwalk.Provider format and add them
 		for _, oauthProvider := range oauthProviders {
 			displayProvider := oauthProvider.ToDisplayProvider()
-			providerList = append(providerList, displayProvider)
+			catwalkProviders = append(catwalkProviders, displayProvider)
 		}
 		
 		slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
 	}
-	return
+	
+	return catwalkProviders, err
 }
 
 func isCacheStale(path string) (stale, exists bool) {

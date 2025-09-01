@@ -2,7 +2,6 @@ package splash
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/llm/prompt"
 	"github.com/charmbracelet/crush/internal/tui/components/chat"
 	"github.com/charmbracelet/crush/internal/tui/components/core"
@@ -452,12 +452,15 @@ func (s *splashCmp) View() string {
 		)
 	} else if s.needsProjectInit {
 		titleStyle := t.S().Base.Foreground(t.FgBase)
+		pathStyle := t.S().Base.Foreground(t.Success).PaddingLeft(2)
 		bodyStyle := t.S().Base.Foreground(t.FgMuted)
 		shortcutStyle := t.S().Base.Foreground(t.Success)
 
 		initText := lipgloss.JoinVertical(
 			lipgloss.Left,
 			titleStyle.Render("Would you like to initialize this project?"),
+			"",
+			pathStyle.Render(s.cwd()),
 			"",
 			bodyStyle.Render("When I initialize your codebase I examine the project and put the"),
 			bodyStyle.Render("result into a CRUSH.md file which serves as general context."),
@@ -545,7 +548,7 @@ func (s *splashCmp) infoSection() string {
 	return infoStyle.Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,
-			s.cwd(),
+			s.cwdPart(),
 			"",
 			s.currentModelBlock(),
 			"",
@@ -638,15 +641,14 @@ func (s *splashCmp) getMaxInfoWidth() int {
 	return min(s.width-2, 90) // 2 for left padding
 }
 
-func (s *splashCmp) cwd() string {
-	cwd := config.Get().WorkingDir()
+func (s *splashCmp) cwdPart() string {
 	t := styles.CurrentTheme()
-	homeDir, err := os.UserHomeDir()
-	if err == nil && cwd != homeDir {
-		cwd = strings.ReplaceAll(cwd, homeDir, "~")
-	}
 	maxWidth := s.getMaxInfoWidth()
-	return t.S().Muted.Width(maxWidth).Render(cwd)
+	return t.S().Muted.Width(maxWidth).Render(s.cwd())
+}
+
+func (s *splashCmp) cwd() string {
+	return home.Short(config.Get().WorkingDir())
 }
 
 func LSPList(maxWidth int) []string {

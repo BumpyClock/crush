@@ -16,7 +16,6 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/fsext"
-	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/log"
 )
 
@@ -266,18 +265,12 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 			continue
 		}
 		if providerConfig.APIKey == "" {
-			// OAuth providers don't have traditional API keys
-			if !IsOAuthProvider(id) {
-				slog.Warn("Provider is missing API key, this might be OK for local providers", "provider", id)
-			}
+			slog.Warn("Provider is missing API key, this might be OK for local providers", "provider", id)
 		}
 		if providerConfig.BaseURL == "" {
-			// OAuth providers don't need a BaseURL
-			if !IsOAuthProvider(id) {
-				slog.Warn("Skipping custom provider due to missing API endpoint", "provider", id)
-				c.Providers.Del(id)
-				continue
-			}
+			slog.Warn("Skipping custom provider due to missing API endpoint", "provider", id)
+			c.Providers.Del(id)
+			continue
 		}
 		if len(providerConfig.Models) == 0 {
 			slog.Warn("Skipping custom provider because the provider has no models", "provider", id)
@@ -591,7 +584,7 @@ func globalConfig() string {
 		return filepath.Join(localAppData, appName, fmt.Sprintf("%s.json", appName))
 	}
 
-	return filepath.Join(home.Dir(), ".config", appName, fmt.Sprintf("%s.json", appName))
+	return filepath.Join(os.Getenv("HOME"), ".config", appName, fmt.Sprintf("%s.json", appName))
 }
 
 // GlobalConfigData returns the path to the main data directory for the application.
@@ -613,5 +606,5 @@ func GlobalConfigData() string {
 		return filepath.Join(localAppData, appName, fmt.Sprintf("%s.json", appName))
 	}
 
-	return filepath.Join(home.Dir(), ".local", "share", appName, fmt.Sprintf("%s.json", appName))
+	return filepath.Join(os.Getenv("HOME"), ".local", "share", appName, fmt.Sprintf("%s.json", appName))
 }
