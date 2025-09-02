@@ -206,7 +206,7 @@ func NewProvider(cfg config.ProviderConfig, opts ...ProviderClientOption) (Provi
 	for _, o := range opts {
 		o(&clientOptions)
 	}
-	
+
 	// First, check if this provider is registered in the registry
 	if client, found := CreateFromRegistry(cfg, clientOptions); found {
 		// Wrap the provider client in baseProvider interface
@@ -215,7 +215,7 @@ func NewProvider(cfg config.ProviderConfig, opts ...ProviderClientOption) (Provi
 			client:  client,
 		}, nil
 	}
-	
+
 	// Fall back to existing switch statement for built-in providers
 	switch cfg.Type {
 	case catwalk.TypeAnthropic:

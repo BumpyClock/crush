@@ -231,14 +231,17 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 				}
 			}
 		default:
-			// if the provider api or endpoint are missing we skip them
-			v, err := resolver.ResolveValue(p.APIKey)
-			if v == "" || err != nil {
-				if configExists {
-					slog.Warn("Skipping provider due to missing API key", "provider", p.ID)
-					c.Providers.Del(string(p.ID))
+			// For OAuth providers (e.g., github-copilot, claudesub), API keys are not required.
+			if !IsOAuthProvider(string(p.ID)) {
+				// if the provider api or endpoint are missing we skip them
+				v, err := resolver.ResolveValue(p.APIKey)
+				if v == "" || err != nil {
+					if configExists {
+						slog.Warn("Skipping provider due to missing API key", "provider", p.ID)
+						c.Providers.Del(string(p.ID))
+					}
+					continue
 				}
-				continue
 			}
 		}
 		c.Providers.Set(string(p.ID), prepared)

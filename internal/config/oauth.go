@@ -8,6 +8,8 @@ func IsOAuthProvider(providerID string) bool {
 	switch providerID {
 	case "claudesub":
 		return true
+	case "github-copilot":
+		return true
 	default:
 		return false
 	}
@@ -15,7 +17,7 @@ func IsOAuthProvider(providerID string) bool {
 
 // ListOAuthProviders returns all OAuth-capable provider IDs
 func ListOAuthProviders() []string {
-	return []string{"claudesub"}
+	return []string{"claudesub", "github-copilot"}
 }
 
 // GetDefaultOAuthModels returns default models for OAuth providers
@@ -89,6 +91,25 @@ func GetDefaultOAuthModels(providerID string) []catwalk.Model {
 				Name:             "Claude 3.5 Haiku",
 				ContextWindow:    200000,
 				DefaultMaxTokens: 5000,
+				CanReason:        false,
+				SupportsImages:   true,
+			},
+		}
+	case "github-copilot":
+		return []catwalk.Model{
+			{
+				ID:               "gpt-4o",
+				Name:             "GitHub Copilot (GPT-4o)",
+				ContextWindow:    128000,
+				DefaultMaxTokens: 8192,
+				CanReason:        true,
+				SupportsImages:   true,
+			},
+			{
+				ID:               "gpt-4o-mini",
+				Name:             "GitHub Copilot (GPT-4o-mini)",
+				ContextWindow:    128000,
+				DefaultMaxTokens: 8192,
 				CanReason:        false,
 				SupportsImages:   true,
 			},

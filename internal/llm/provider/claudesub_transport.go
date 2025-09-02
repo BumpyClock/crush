@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 )
 
-
 type claudeSubTransport struct {
 	base        http.RoundTripper
 	authManager *auth.AuthManager
@@ -24,44 +23,44 @@ func newClaudeSubTransport(authManager *auth.AuthManager) http.RoundTripper {
 }
 
 func (t *claudeSubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	
+
 	// Clone the request to avoid modifying the original
 	clonedReq := req.Clone(req.Context())
-	
+
 	if err := t.modifyRequestHeaders(clonedReq); err != nil {
 		return nil, fmt.Errorf("failed to modify request headers: %w", err)
 	}
-	
+
 	// Make the request
 	resp, err := t.base.RoundTrip(clonedReq)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Handle 401 Unauthorized - attempt token refresh
 	if resp.StatusCode == http.StatusUnauthorized {
 		// Close the failed response
 		resp.Body.Close()
-		
+
 		// Try to refresh the token
 		if refreshErr := t.authManager.RefreshClaudeSubToken(req.Context()); refreshErr != nil {
 			slog.Error("Failed to refresh token", "error", refreshErr)
 			return nil, fmt.Errorf("authentication failed and token refresh failed: %w", refreshErr)
 		}
-		
+
 		// Retry the request with refreshed token
 		clonedReq2 := req.Clone(req.Context())
-		
+
 		if err := t.modifyRequestHeaders(clonedReq2); err != nil {
 			return nil, fmt.Errorf("failed to modify request headers after refresh: %w", err)
 		}
-		
+
 		resp, err = t.base.RoundTrip(clonedReq2)
 		if err != nil {
 			return nil, err
 		}
 	}
-	
+
 	return resp, nil
 }
 
@@ -71,14 +70,14 @@ func (t *claudeSubTransport) modifyRequestHeaders(req *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("failed to get valid access token: %w", err)
 	}
-	
+
 	// Remove any existing API key headers
 	req.Header.Del("x-api-key")
 	req.Header.Del("X-Api-Key")
-	
+
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-	
-	req.Header.Del("Anthropic-Beta") 
+
+	req.Header.Del("Anthropic-Beta")
 	req.Header.Del("anthropic-beta")
 	req.Header.Add("anthropic-beta", auth.BetaHeaders)
 	req.Header.Del("User-Agent")
@@ -89,7 +88,7 @@ func (t *claudeSubTransport) modifyRequestHeaders(req *http.Request) error {
 	req.Header.Del("X-Stainless-Runtime")
 	req.Header.Del("X-Stainless-Runtime-Version")
 	req.Header.Del("X-Stainless-Package-Version")
-	
+
 	return nil
 }
 
@@ -98,22 +97,22 @@ func createClaudeSubHTTPClient() (*http.Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration not loaded")
 	}
-	
+
 	authManager := auth.NewAuthManager(cfg.Options.DataDirectory)
-	
+
 	if !authManager.HasClaudeSubAuth() {
 		return nil, fmt.Errorf("no OAuth credentials found - run 'crush auth login' first")
 	}
-	
+
 	transport := newClaudeSubTransport(authManager)
-	
+
 	// Add debug logging if enabled
 	if cfg.Options.Debug {
 		transport = &HTTPDebugTransport{
 			Transport: transport,
 		}
 	}
-	
+
 	return &http.Client{
 		Transport: transport,
 	}, nil

@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	ClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	RedirectURI  = "https://console.anthropic.com/oauth/code/callback"
-	Scope        = "org:create_api_key user:profile user:inference"
-	AuthURL      = "https://claude.ai/oauth/authorize"
-	TokenURL     = "https://console.anthropic.com/v1/oauth/token"
-	BetaHeaders  = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+	ClientID    = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	RedirectURI = "https://console.anthropic.com/oauth/code/callback"
+	Scope       = "org:create_api_key user:profile user:inference"
+	AuthURL     = "https://claude.ai/oauth/authorize"
+	TokenURL    = "https://console.anthropic.com/v1/oauth/token"
+	BetaHeaders = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
 )
 
 type OAuthFlow struct {

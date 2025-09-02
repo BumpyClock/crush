@@ -64,6 +64,15 @@ func createOpenAIClient(opts providerClientOptions) openai.Client {
 	return openai.NewClient(openaiClientOptions...)
 }
 
+// newOpenAIClientWithOptions creates an OpenAI client with custom request options.
+// Useful for OAuth-backed providers that need a custom HTTP client or base URL.
+func newOpenAIClientWithOptions(opts providerClientOptions, openaiOpts []option.RequestOption) OpenAIClient {
+	return &openaiClient{
+		providerOptions: opts,
+		client:          openai.NewClient(openaiOpts...),
+	}
+}
+
 func (o *openaiClient) convertMessages(messages []message.Message) (openaiMessages []openai.ChatCompletionMessageParamUnion) {
 	isAnthropicModel := o.providerOptions.config.ID == string(catwalk.InferenceProviderOpenRouter) && strings.HasPrefix(o.Model().ID, "anthropic/")
 	// Add system message first

@@ -35,16 +35,16 @@ func newClaudeSubClient(opts providerClientOptions) ProviderClient {
 		slog.Error("Configuration not loaded for claudesub provider")
 		return nil
 	}
-	
+
 	// Automatically inject system prompt prefix for OAuth authentication
 	opts.systemPromptPrefix = systemPromptPrefix
-	
+
 	authManager := auth.NewAuthManager(cfg.Options.DataDirectory)
-	
+
 	useOAuth := authManager.HasClaudeSubAuth()
-	
+
 	var anthropicClient AnthropicClient
-	
+
 	if useOAuth {
 		slog.Info("Using OAuth authentication for claudesub provider")
 		httpClient, err := createClaudeSubHTTPClient()
@@ -56,7 +56,7 @@ func newClaudeSubClient(opts providerClientOptions) ProviderClient {
 			anthropicOpts := []option.RequestOption{
 				option.WithHTTPClient(httpClient),
 			}
-			
+
 			// Only set custom base URL if it's not the default Anthropic URL
 			// The Anthropic SDK already handles the default URL correctly
 			if opts.baseURL != "" && opts.baseURL != "https://api.anthropic.com/v1" {
@@ -67,17 +67,17 @@ func newClaudeSubClient(opts providerClientOptions) ProviderClient {
 				}
 				anthropicOpts = append(anthropicOpts, option.WithBaseURL(baseURL))
 			}
-			
+
 			// Add extra headers
 			for key, header := range opts.extraHeaders {
 				anthropicOpts = append(anthropicOpts, option.WithHeaderAdd(key, header))
 			}
-			
+
 			// Add extra body parameters
 			for key, value := range opts.extraBody {
 				anthropicOpts = append(anthropicOpts, option.WithJSONSet(key, value))
 			}
-			
+
 			client := newAnthropicClientWithOptions(opts, anthropicOpts)
 			anthropicClient = client
 		}
@@ -85,7 +85,7 @@ func newClaudeSubClient(opts providerClientOptions) ProviderClient {
 		slog.Info("OAuth not available, using API key authentication for claudesub provider")
 		anthropicClient = newAnthropicClient(opts, AnthropicClientTypeNormal)
 	}
-	
+
 	return &claudeSubClient{
 		providerOptions: opts,
 		anthropicClient: anthropicClient,
@@ -103,7 +103,6 @@ func newAnthropicClientWithOptions(opts providerClientOptions, anthropicOpts []o
 	}
 }
 
-
 func (c *claudeSubClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
 	return c.anthropicClient.send(ctx, messages, tools)
 }
@@ -117,7 +116,7 @@ func (c *claudeSubClient) Model() catwalk.Model {
 	if c.providerOptions.modelType != "" {
 		return c.providerOptions.model(c.providerOptions.modelType)
 	}
-	
+
 	// Return underlying model if no specific model type is set
 	return c.anthropicClient.Model()
 }
@@ -135,7 +134,7 @@ func (c *claudeSubClient) GetOAuthModels() []catwalk.Model {
 	if !c.HasOAuthCredentials() {
 		return nil
 	}
-	
+
 	// If models are configured, use them; otherwise use defaults
 	var sourceModels []catwalk.Model
 	if len(c.providerOptions.config.Models) > 0 {
@@ -145,7 +144,7 @@ func (c *claudeSubClient) GetOAuthModels() []catwalk.Model {
 		// Use default model set for claudesub OAuth provider
 		sourceModels = getDefaultClaudeSubModels()
 	}
-	
+
 	oauthModels := make([]catwalk.Model, len(sourceModels))
 	for i, model := range sourceModels {
 		oauthModels[i] = catwalk.Model{
@@ -163,7 +162,7 @@ func (c *claudeSubClient) GetOAuthModels() []catwalk.Model {
 			SupportsImages:         model.SupportsImages,
 		}
 	}
-	
+
 	return oauthModels
 }
 
@@ -261,4 +260,3 @@ func init() {
 		},
 	})
 }
-

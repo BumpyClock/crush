@@ -13,10 +13,10 @@ type ProviderConstructor func(opts providerClientOptions) ProviderClient
 
 // ProviderRegistration holds information about a registered provider
 type ProviderRegistration struct {
-	ID          string
-	Name        string
-	Constructor ProviderConstructor
-	Type        catwalk.Type
+	ID            string
+	Name          string
+	Constructor   ProviderConstructor
+	Type          catwalk.Type
 	SupportsOAuth bool
 }
 
@@ -36,22 +36,22 @@ func RegisterProvider(registration *ProviderRegistration) error {
 	if registration == nil {
 		return fmt.Errorf("provider registration cannot be nil")
 	}
-	
+
 	if registration.ID == "" {
 		return fmt.Errorf("provider ID cannot be empty")
 	}
-	
+
 	if registration.Constructor == nil {
 		return fmt.Errorf("provider constructor cannot be nil")
 	}
-	
+
 	providerRegistry.Lock()
 	defer providerRegistry.Unlock()
-	
+
 	if _, exists := providerRegistry.providers[registration.ID]; exists {
 		return fmt.Errorf("provider with ID %s is already registered", registration.ID)
 	}
-	
+
 	providerRegistry.providers[registration.ID] = registration
 	return nil
 }
@@ -60,7 +60,7 @@ func RegisterProvider(registration *ProviderRegistration) error {
 func GetRegisteredProvider(id string) (*ProviderRegistration, bool) {
 	providerRegistry.RLock()
 	defer providerRegistry.RUnlock()
-	
+
 	registration, exists := providerRegistry.providers[id]
 	return registration, exists
 }
@@ -69,7 +69,7 @@ func GetRegisteredProvider(id string) (*ProviderRegistration, bool) {
 func ListRegisteredProviders() []string {
 	providerRegistry.RLock()
 	defer providerRegistry.RUnlock()
-	
+
 	var ids []string
 	for id := range providerRegistry.providers {
 		ids = append(ids, id)
@@ -98,12 +98,12 @@ func CreateFromRegistry(cfg config.ProviderConfig, opts providerClientOptions) (
 	if !exists {
 		return nil, false
 	}
-	
+
 	// Validate type compatibility
 	if cfg.Type != "" && registration.Type != "" && cfg.Type != registration.Type {
 		return nil, false
 	}
-	
+
 	// Create the provider using the registered constructor
 	client := registration.Constructor(opts)
 	return client, true
@@ -115,4 +115,3 @@ func MustRegisterProvider(registration *ProviderRegistration) {
 		panic(fmt.Sprintf("failed to register provider %s: %v", registration.ID, err))
 	}
 }
-

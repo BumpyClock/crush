@@ -12,16 +12,16 @@ import (
 type OAuthProvider interface {
 	// SupportsOAuth returns true if the provider supports OAuth authentication
 	SupportsOAuth() bool
-	
+
 	// HasOAuthCredentials returns true if OAuth credentials are available
 	HasOAuthCredentials() bool
-	
+
 	// GetOAuthModels returns models with OAuth-specific configuration (e.g., zero cost)
 	GetOAuthModels() []catwalk.Model
-	
+
 	// RequiresOAuthSetup returns true if this provider requires OAuth to function
 	RequiresOAuthSetup() bool
-	
+
 	// GetAuthManager returns the auth manager for this provider
 	GetAuthManager() *auth.AuthManager
 }
@@ -52,15 +52,15 @@ func HasValidOAuthCredentials(ctx context.Context, client ProviderClient) bool {
 	if !ok {
 		return false
 	}
-	
+
 	if !oauthProvider.SupportsOAuth() {
 		return false
 	}
-	
+
 	if !oauthProvider.HasOAuthCredentials() {
 		return false
 	}
-	
+
 	// Could add token validation here if needed
 	return true
 }
@@ -71,6 +71,6 @@ func RequiresOAuthAuthentication(client ProviderClient) bool {
 	if !ok {
 		return false
 	}
-	
+
 	return oauthProvider.RequiresOAuthSetup()
 }

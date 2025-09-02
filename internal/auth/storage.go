@@ -20,13 +20,14 @@ type OAuthCredentials struct {
 	Type    string `json:"type"`
 	Access  string `json:"access"`
 	Refresh string `json:"refresh"`
-	Expires int64  `json:"expires"` // Unix timestamp in milliseconds
+	Expires int64  `json:"expires"`         // Unix timestamp in milliseconds
 	Scope   string `json:"scope,omitempty"` // Granted OAuth scopes
 }
 
 // AuthData represents the complete authentication data structure
 type AuthData struct {
-	ClaudeSub *OAuthCredentials `json:"claudesub,omitempty"`
+	ClaudeSub     *OAuthCredentials `json:"claudesub,omitempty"`
+	GithubCopilot *OAuthCredentials `json:"github-copilot,omitempty"`
 }
 
 // AuthManager handles storage and retrieval of authentication data
@@ -87,7 +88,7 @@ func (am *AuthManager) SaveAuthData(authData *AuthData) error {
 	}
 
 	authPath := am.authFilePath()
-	
+
 	// Write with secure permissions (owner only)
 	if err := os.WriteFile(authPath, data, AuthFileMode); err != nil {
 		return fmt.Errorf("failed to write auth file: %w", err)
@@ -143,7 +144,7 @@ func (am *AuthManager) IsClaudeSubTokenValid() (bool, error) {
 	now := time.Now().UnixMilli()
 	// Consider token expired if less than 5 minutes remaining
 	bufferMs := int64(5 * 60 * 1000) // 5 minutes in milliseconds
-	
+
 	return now < (creds.Expires - bufferMs), nil
 }
 
@@ -213,5 +214,130 @@ func (am *AuthManager) GetValidAccessToken(ctx context.Context) (string, error) 
 
 func (am *AuthManager) HasClaudeSubAuth() bool {
 	_, err := am.GetClaudeSubCredentials()
+	return err == nil
+}
+
+// GitHub Copilot credential helpers.
+
+// StoreGithubCopilotRefresh stores the GitHub OAuth token (used to mint Copilot API tokens).
+func (am *AuthManager) StoreGithubCopilotRefresh(githubOAuthToken string) error {
+	authData, err := am.LoadAuthData()
+	if err != nil {
+		return fmt.Errorf("failed to load auth data: %w", err)
+	}
+
+	if authData.GithubCopilot == nil {
+		authData.GithubCopilot = &OAuthCredentials{}
+	}
+
+	authData.GithubCopilot.Type = "oauth"
+	authData.GithubCopilot.Refresh = githubOAuthToken
+	// Access and Expires will be set after minting a Copilot token.
+
+	if err := am.SaveAuthData(authData); err != nil {
+		return fmt.Errorf("failed to save github-copilot credentials: %w", err)
+	}
+
+	slog.Info("Stored GitHub OAuth token for Copilot")
+	return nil
+}
+
+// UpdateGithubCopilotAccess exchanges the GitHub OAuth token for a Copilot API token and saves it.
+func (am *AuthManager) UpdateGithubCopilotAccess(ctx context.Context) error {
+	creds, err := am.GetGithubCopilotCredentials()
+	if err != nil {
+		return fmt.Errorf("no github-copilot credentials to update: %w", err)
+	}
+	if creds.Refresh == "" {
+		return fmt.Errorf("no github oauth token available")
+	}
+
+	token, expiresAt, err := FetchCopilotToken(ctx, creds.Refresh)
+	if err != nil {
+		return fmt.Errorf("failed to fetch copilot token: %w", err)
+	}
+
+	authData, err := am.LoadAuthData()
+	if err != nil {
+		return fmt.Errorf("failed to load auth data: %w", err)
+	}
+	if authData.GithubCopilot == nil {
+		authData.GithubCopilot = &OAuthCredentials{}
+	}
+
+	authData.GithubCopilot.Type = "oauth"
+	authData.GithubCopilot.Access = token
+	authData.GithubCopilot.Expires = expiresAt
+	// Keep Refresh as GitHub OAuth token.
+
+	if err := am.SaveAuthData(authData); err != nil {
+		return fmt.Errorf("failed to save github-copilot access token: %w", err)
+	}
+
+	slog.Info("Stored GitHub Copilot access token")
+	return nil
+}
+
+// GetGithubCopilotCredentials returns stored GitHub Copilot credentials.
+func (am *AuthManager) GetGithubCopilotCredentials() (*OAuthCredentials, error) {
+	authData, err := am.LoadAuthData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load auth data: %w", err)
+	}
+	if authData.GithubCopilot == nil {
+		return nil, fmt.Errorf("no github-copilot credentials found")
+	}
+	return authData.GithubCopilot, nil
+}
+
+// IsGithubCopilotTokenValid reports whether the stored Copilot access token is still valid (5m buffer).
+func (am *AuthManager) IsGithubCopilotTokenValid() (bool, error) {
+	creds, err := am.GetGithubCopilotCredentials()
+	if err != nil {
+		return false, err
+	}
+	if creds.Access == "" || creds.Expires == 0 {
+		return false, nil
+	}
+	now := time.Now().UnixMilli()
+	bufferMs := int64(5 * 60 * 1000)
+	return now < (creds.Expires - bufferMs), nil
+}
+
+// GetValidGithubCopilotAccess ensures a valid Copilot access token, updating if needed.
+func (am *AuthManager) GetValidGithubCopilotAccess(ctx context.Context) (string, error) {
+	valid, err := am.IsGithubCopilotTokenValid()
+	if err != nil {
+		return "", err
+	}
+	if !valid {
+		if err := am.UpdateGithubCopilotAccess(ctx); err != nil {
+			return "", fmt.Errorf("failed to refresh copilot token: %w", err)
+		}
+	}
+	creds, err := am.GetGithubCopilotCredentials()
+	if err != nil {
+		return "", err
+	}
+	return creds.Access, nil
+}
+
+// ClearGithubCopilotCredentials clears stored GitHub Copilot credentials.
+func (am *AuthManager) ClearGithubCopilotCredentials() error {
+	authData, err := am.LoadAuthData()
+	if err != nil {
+		return fmt.Errorf("failed to load auth data: %w", err)
+	}
+	authData.GithubCopilot = nil
+	if err := am.SaveAuthData(authData); err != nil {
+		return fmt.Errorf("failed to save auth data after clearing credentials: %w", err)
+	}
+	slog.Info("Cleared GitHub Copilot credentials")
+	return nil
+}
+
+// HasGithubCopilotAuth returns true if a GitHub OAuth token is stored.
+func (am *AuthManager) HasGithubCopilotAuth() bool {
+	_, err := am.GetGithubCopilotCredentials()
 	return err == nil
 }

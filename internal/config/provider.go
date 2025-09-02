@@ -107,21 +107,22 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 					_ = saveProvidersInCache(path, updated)
 				}
 			}()
-			
-			// Add OAuth providers to cached list
-			cfg := Get()
-			if cfg != nil {
-				dataDirectory := cfg.Options.DataDirectory
-				oauthProviders := GetOAuthProviders(dataDirectory)
-				
-				// Convert OAuth providers to catwalk.Provider format and add them
-				for _, oauthProvider := range oauthProviders {
-					displayProvider := oauthProvider.ToDisplayProvider()
-					providerList = append(providerList, displayProvider)
+
+			// Add OAuth providers to cached list (use config if loaded, else default working dir)
+			dataDirectory := ""
+			if cfg := Get(); cfg != nil {
+				dataDirectory = cfg.Options.DataDirectory
+			} else {
+				if wd, err := os.Getwd(); err == nil {
+					dataDirectory = filepath.Join(wd, defaultDataDirectory)
 				}
-				
-				slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
 			}
+			oauthProviders := GetOAuthProviders(dataDirectory)
+			for _, oauthProvider := range oauthProviders {
+				displayProvider := oauthProvider.ToDisplayProvider()
+				providerList = append(providerList, displayProvider)
+			}
+			slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
 			return
 		}
 	}
@@ -130,40 +131,42 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 	providerList, err = client.GetProviders()
 	if len(providerList) > 0 && err == nil {
 		err = saveProvidersInCache(path, providerList)
-		
+
 		// Add OAuth providers to live list
-		cfg := Get()
-		if cfg != nil {
-			dataDirectory := cfg.Options.DataDirectory
-			oauthProviders := GetOAuthProviders(dataDirectory)
-			
-			// Convert OAuth providers to catwalk.Provider format and add them
-			for _, oauthProvider := range oauthProviders {
-				displayProvider := oauthProvider.ToDisplayProvider()
-				providerList = append(providerList, displayProvider)
+		dataDirectory := ""
+		if cfg := Get(); cfg != nil {
+			dataDirectory = cfg.Options.DataDirectory
+		} else {
+			if wd, err := os.Getwd(); err == nil {
+				dataDirectory = filepath.Join(wd, defaultDataDirectory)
 			}
-			
-			slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
 		}
-		return
-	}
-	slog.Info("Loading provider data from cache", "path", path)
-	providerList, err = loadProvidersFromCache(path)
-	
-	// Add OAuth providers to fallback cache list
-	cfg := Get()
-	if cfg != nil {
-		dataDirectory := cfg.Options.DataDirectory
 		oauthProviders := GetOAuthProviders(dataDirectory)
-		
-		// Convert OAuth providers to catwalk.Provider format and add them
 		for _, oauthProvider := range oauthProviders {
 			displayProvider := oauthProvider.ToDisplayProvider()
 			providerList = append(providerList, displayProvider)
 		}
-		
 		slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
+		return
 	}
+	slog.Info("Loading provider data from cache", "path", path)
+	providerList, err = loadProvidersFromCache(path)
+
+	// Add OAuth providers to fallback cache list
+	dataDirectory := ""
+	if cfg := Get(); cfg != nil {
+		dataDirectory = cfg.Options.DataDirectory
+	} else {
+		if wd, err := os.Getwd(); err == nil {
+			dataDirectory = filepath.Join(wd, defaultDataDirectory)
+		}
+	}
+	oauthProviders := GetOAuthProviders(dataDirectory)
+	for _, oauthProvider := range oauthProviders {
+		displayProvider := oauthProvider.ToDisplayProvider()
+		providerList = append(providerList, displayProvider)
+	}
+	slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
 	return
 }
 

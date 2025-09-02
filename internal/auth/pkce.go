@@ -33,7 +33,7 @@ func GeneratePKCEChallenge() (*PKCEChallenge, error) {
 func generateCodeVerifier(length int) (string, error) {
 	// Use URL-safe characters: [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-	
+
 	b := make([]byte, length)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
