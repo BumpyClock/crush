@@ -256,7 +256,8 @@ type Config struct {
 	// Internal
 	workingDir string `json:"-"`
 	// TODO: most likely remove this concept when I come back to it
-	Agents map[string]Agent `json:"-"`
+	Agents           map[string]Agent           `json:"-"`
+	AgentDefinitions map[string]AgentDefinition `json:"-"` // Custom agent definitions loaded from files
 	// TODO: find a better way to do this this should probably not be part of the config
 	resolver       VariableResolver
 	dataConfigDir  string             `json:"-"`
@@ -416,6 +417,7 @@ func (c *Config) SetProviderAPIKey(providerID, apiKey string) error {
 }
 
 func (c *Config) SetupAgents() {
+	// Start with default built-in agents
 	agents := map[string]Agent{
 		"coder": {
 			ID:           "coder",
@@ -428,22 +430,46 @@ func (c *Config) SetupAgents() {
 		"task": {
 			ID:           "task",
 			Name:         "Task",
-			Description:  "An agent that helps with searching for context and finding implementation details.",
+			Description:  "An agent that helps with searching for context and finding implementation details. Use for parallel searches.",
 			Model:        SelectedModelTypeLarge,
 			ContextPaths: c.Options.ContextPaths,
-			AllowedTools: []string{
-				"glob",
-				"grep",
-				"ls",
-				"sourcegraph",
-				"view",
-			},
-			// NO MCPs or LSPs by default
-			AllowedMCP: map[string][]string{},
-			AllowedLSP: []string{},
+			// All tools allowed now to match sub-agent capabilities
+			AllowedTools: nil, // nil means all tools
 		},
 	}
+
+	// Load custom agent definitions from files
+	customAgents, err := LoadAgentDefinitions(c.WorkingDir())
+	if err != nil {
+		slog.Warn("Failed to load custom agents", "error", err)
+	} else {
+		slog.Info("Loading custom agents", "count", len(customAgents))
+		// Add or override with custom agents
+		for name, def := range customAgents {
+			slog.Info("Loading custom agent", "name", name, "description", def.Description, "tools", def.Tools)
+			// Convert definition to agent config
+			agent := ConvertDefinitionToAgent(def, SelectedModelTypeLarge)
+			agent.ContextPaths = c.Options.ContextPaths
+
+			// Store both the agent config and its definition for later use
+			agents[name] = agent
+			if c.AgentDefinitions == nil {
+				c.AgentDefinitions = make(map[string]AgentDefinition)
+			}
+			c.AgentDefinitions[name] = def
+		}
+	}
+
+	slog.Info("Total agents configured", "count", len(agents), "names", getAgentNames(agents))
 	c.Agents = agents
+}
+
+func getAgentNames(agents map[string]Agent) []string {
+	var names []string
+	for name := range agents {
+		names = append(names, name)
+	}
+	return names
 }
 
 func (c *Config) Resolver() VariableResolver {

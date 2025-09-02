@@ -614,7 +614,13 @@ func (tr agentRenderer) Render(v *toolCallCmp) string {
 	prompt := params.Prompt
 	prompt = strings.ReplaceAll(prompt, "\n", " ")
 
-	header := tr.makeHeader(v, "Agent", v.textWidth())
+	// Use the actual agent name if specified, otherwise default to "Task Agent"
+	agentName := "Task Agent"
+	if params.AgentName != "" {
+		agentName = agent.FormatAgentName(params.AgentName)
+	}
+
+	header := tr.makeHeader(v, agentName, v.textWidth())
 	if res, done := earlyState(header, v); v.cancelled && done {
 		return res
 	}

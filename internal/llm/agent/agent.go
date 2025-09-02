@@ -104,16 +104,35 @@ func NewAgent(
 
 	var agentTool tools.BaseTool
 	if agentCfg.ID == "coder" {
-		taskAgentCfg := config.Get().Agents["task"]
-		if taskAgentCfg.ID == "" {
-			return nil, fmt.Errorf("task agent not found in config")
-		}
-		taskAgent, err := NewAgent(ctx, taskAgentCfg, permissions, sessions, messages, history, lspClients)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create task agent: %w", err)
+		// Create all available sub-agents for the coder agent to use
+		subAgents := make(map[string]Service)
+		subAgentConfigs := make(map[string]config.Agent)
+
+		slog.Info("Creating sub-agents for coder", "total_agents", len(cfg.Agents))
+
+		// Add all configured agents as sub-agents (except coder itself to avoid recursion)
+		for name, subAgentCfg := range cfg.Agents {
+			if name == "coder" {
+				continue // Skip coder agent to avoid recursion
+			}
+
+			slog.Info("Creating sub-agent", "name", name, "id", subAgentCfg.ID)
+			subAgent, err := NewAgent(ctx, subAgentCfg, permissions, sessions, messages, history, lspClients)
+			if err != nil {
+				slog.Warn("Failed to create sub-agent", "agent", name, "error", err)
+				continue
+			}
+			subAgents[name] = subAgent
+			subAgentConfigs[name] = subAgentCfg
+			slog.Info("Successfully created sub-agent", "name", name)
 		}
 
-		agentTool = NewAgentTool(taskAgent, sessions, messages)
+		slog.Info("Created sub-agents", "count", len(subAgents), "names", getSubAgentNames(subAgents))
+
+		// Create the agent tool with all available sub-agents
+		if len(subAgents) > 0 {
+			agentTool = NewAgentTool(subAgents, subAgentConfigs, sessions, messages)
+		}
 	}
 
 	providerCfg := config.Get().GetProviderForModel(agentCfg.Model)
@@ -130,9 +149,39 @@ func NewAgent(
 	if promptID == "" {
 		promptID = prompt.PromptDefault
 	}
+
+	// Check if this agent has a custom definition with a system prompt
+	var systemMessage string
+	if cfg.AgentDefinitions != nil {
+		slog.Info("Checking for custom agent definition", 
+			"agent_id", agentCfg.ID,
+			"agent_name", agentCfg.Name,
+			"has_definitions", len(cfg.AgentDefinitions),
+		)
+		if def, ok := cfg.AgentDefinitions[agentCfg.ID]; ok && def.SystemPrompt != "" {
+			// Use custom system prompt from agent definition
+			systemMessage = def.SystemPrompt
+			slog.Info("Using custom system prompt", 
+				"agent", agentCfg.ID,
+				"prompt_length", len(systemMessage),
+			)
+		} else {
+			// Use default prompt
+			systemMessage = prompt.GetPrompt(promptID, providerCfg.ID, config.Get().Options.ContextPaths...)
+			slog.Info("Using default prompt", 
+				"agent", agentCfg.ID,
+				"prompt_id", promptID,
+			)
+		}
+	} else {
+		// Use default prompt
+		systemMessage = prompt.GetPrompt(promptID, providerCfg.ID, config.Get().Options.ContextPaths...)
+		slog.Info("No agent definitions, using default prompt", "agent", agentCfg.ID)
+	}
+
 	opts := []provider.ProviderClientOption{
 		provider.WithModel(agentCfg.Model),
-		provider.WithSystemMessage(prompt.GetPrompt(promptID, providerCfg.ID, config.Get().Options.ContextPaths...)),
+		provider.WithSystemMessage(systemMessage),
 	}
 	agentProvider, err := provider.NewProvider(*providerCfg, opts...)
 	if err != nil {
@@ -208,6 +257,7 @@ func NewAgent(
 		}
 
 		if agentCfg.AllowedTools == nil {
+			slog.Info("Agent has access to all tools", "agent", agentCfg.ID, "tool_count", len(allTools))
 			return allTools
 		}
 
@@ -217,6 +267,12 @@ func NewAgent(
 				filteredTools = append(filteredTools, tool)
 			}
 		}
+		slog.Info("Agent tools filtered", 
+			"agent", agentCfg.ID,
+			"allowed_tools", agentCfg.AllowedTools,
+			"filtered_count", len(filteredTools),
+			"total_count", len(allTools),
+		)
 		return filteredTools
 	}
 
@@ -486,6 +542,21 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			_ = a.messages.Update(context.Background(), agentMessage)
 			return a.err(ErrRequestCancelled)
 		}
+		// Debug logging to understand agent response
+		var partTypes []string
+		for _, part := range agentMessage.Parts {
+			partTypes = append(partTypes, fmt.Sprintf("%T", part))
+		}
+		slog.Info("Agent completing with message details", 
+			"session_id", sessionID,
+			"message_role", agentMessage.Role,
+			"message_id", agentMessage.ID,
+			"finish_reason", agentMessage.FinishReason(),
+			"content_text", agentMessage.Content().String(),
+			"content_length", len(agentMessage.Content().String()),
+			"parts_count", len(agentMessage.Parts),
+			"part_types", partTypes,
+		)
 		return AgentEvent{
 			Type:    AgentEventTypeResponse,
 			Message: agentMessage,
@@ -1027,4 +1098,12 @@ func (a *agent) UpdateModel() error {
 	}
 
 	return nil
+}
+
+func getSubAgentNames(agents map[string]Service) []string {
+	var names []string
+	for name := range agents {
+		names = append(names, name)
+	}
+	return names
 }
