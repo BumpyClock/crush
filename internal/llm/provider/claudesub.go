@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -29,11 +30,11 @@ type claudeSubClient struct {
 
 // claudeSubClient implements ProviderClient interface for OAuth-enabled Claude provider
 
-func newClaudeSubClient(opts providerClientOptions) ProviderClient {
+func newClaudeSubClient(opts providerClientOptions) (ProviderClient, error) {
 	cfg := config.Get()
 	if cfg == nil {
 		slog.Error("Configuration not loaded for claudesub provider")
-		return nil
+		return nil, fmt.Errorf("configuration not loaded")
 	}
 
 	// Automatically inject system prompt prefix for OAuth authentication
@@ -91,7 +92,7 @@ func newClaudeSubClient(opts providerClientOptions) ProviderClient {
 		anthropicClient: anthropicClient,
 		authManager:     authManager,
 		useOAuth:        useOAuth,
-	}
+	}, nil
 }
 
 // newAnthropicClientWithOptions creates an Anthropic client with custom options
@@ -175,78 +176,7 @@ func (c *claudeSubClient) GetAuthManager() *auth.AuthManager {
 }
 
 // getDefaultClaudeSubModels returns the default model set for claudesub OAuth provider
-func getDefaultClaudeSubModels() []catwalk.Model {
-	return []catwalk.Model{
-		{
-			ID:                     "claude-opus-4-1-20250805",
-			Name:                   "Claude Opus 4.1",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       32000,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "",
-			SupportsImages:         true,
-		},
-		{
-			ID:                     "claude-opus-4-20250514",
-			Name:                   "Claude Opus 4",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       32000,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "",
-			SupportsImages:         true,
-		},
-		{
-			ID:                     "claude-sonnet-4-20250514",
-			Name:                   "Claude Sonnet 4",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       8192,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "medium",
-			SupportsImages:         true,
-		},
-		{
-			ID:                     "claude-3-7-sonnet-20250219",
-			Name:                   "Claude 3.7 Sonnet",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       8192,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "medium",
-			SupportsImages:         true,
-		},
-		{
-			ID:                     "claude-3-5-sonnet-20241022",
-			Name:                   "Claude 3.5 Sonnet (New)",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       8192,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "medium",
-			SupportsImages:         true,
-		},
-		{
-			ID:                     "claude-3-5-sonnet-20240620",
-			Name:                   "Claude 3.5 Sonnet (Old)",
-			ContextWindow:          200000,
-			DefaultMaxTokens:       8192,
-			CanReason:              true,
-			HasReasoningEffort:     true,
-			DefaultReasoningEffort: "medium",
-			SupportsImages:         true,
-		},
-		{
-			ID:               "claude-3-5-haiku-20241022",
-			Name:             "Claude 3.5 Haiku",
-			ContextWindow:    200000,
-			DefaultMaxTokens: 5000,
-			CanReason:        false,
-			SupportsImages:   true,
-		},
-	}
-}
+func getDefaultClaudeSubModels() []catwalk.Model { return config.DefaultModels("claudesub") }
 
 // Register claudesub provider at package initialization
 func init() {
@@ -255,7 +185,7 @@ func init() {
 		Name:          "Claude Max/Pro Subscription",
 		Type:          catwalk.TypeAnthropic,
 		SupportsOAuth: true,
-		Constructor: func(opts providerClientOptions) ProviderClient {
+		Constructor: func(opts providerClientOptions) (ProviderClient, error) {
 			return newClaudeSubClient(opts)
 		},
 	})

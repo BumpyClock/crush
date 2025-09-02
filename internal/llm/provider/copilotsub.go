@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/auth"
@@ -16,13 +19,15 @@ type copilotSubClient struct {
 	providerOptions providerClientOptions
 	openaiClient    OpenAIClient
 	authManager     *auth.AuthManager
+	refreshMu       sync.Mutex
+	lastRefresh     time.Time
 }
 
-func newCopilotSubClient(opts providerClientOptions) ProviderClient {
+func newCopilotSubClient(opts providerClientOptions) (ProviderClient, error) {
 	cfg := config.Get()
 	if cfg == nil {
 		slog.Error("Configuration not loaded for github-copilot provider")
-		return nil
+		return nil, fmt.Errorf("configuration not loaded")
 	}
 
 	authManager := auth.NewAuthManager(cfg.Options.DataDirectory)
@@ -31,7 +36,7 @@ func newCopilotSubClient(opts providerClientOptions) ProviderClient {
 	httpClient, err := createCopilotSubHTTPClient()
 	if err != nil {
 		slog.Error("Failed to create Copilot OAuth HTTP client", "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
 
 	// Build OpenAI client pointing at Copilot API.
@@ -59,7 +64,7 @@ func newCopilotSubClient(opts providerClientOptions) ProviderClient {
 		providerOptions: opts,
 		openaiClient:    client,
 		authManager:     authManager,
-	}
+	}, nil
 }
 
 func (c *copilotSubClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
@@ -84,7 +89,7 @@ func init() {
 		Name:          "GitHub Copilot Subscription",
 		Type:          catwalk.TypeOpenAI,
 		SupportsOAuth: true,
-		Constructor: func(opts providerClientOptions) ProviderClient {
+		Constructor: func(opts providerClientOptions) (ProviderClient, error) {
 			return newCopilotSubClient(opts)
 		},
 	})

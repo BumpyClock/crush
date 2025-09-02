@@ -8,8 +8,9 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 )
 
-// ProviderConstructor is a function that creates a provider client from options
-type ProviderConstructor func(opts providerClientOptions) ProviderClient
+// ProviderConstructor creates a provider client from options
+// It returns an error to allow constructors to fail fast.
+type ProviderConstructor func(opts providerClientOptions) (ProviderClient, error)
 
 // ProviderRegistration holds information about a registered provider
 type ProviderRegistration struct {
@@ -36,22 +37,17 @@ func RegisterProvider(registration *ProviderRegistration) error {
 	if registration == nil {
 		return fmt.Errorf("provider registration cannot be nil")
 	}
-
 	if registration.ID == "" {
 		return fmt.Errorf("provider ID cannot be empty")
 	}
-
 	if registration.Constructor == nil {
 		return fmt.Errorf("provider constructor cannot be nil")
 	}
-
 	providerRegistry.Lock()
 	defer providerRegistry.Unlock()
-
 	if _, exists := providerRegistry.providers[registration.ID]; exists {
 		return fmt.Errorf("provider with ID %s is already registered", registration.ID)
 	}
-
 	providerRegistry.providers[registration.ID] = registration
 	return nil
 }
@@ -60,7 +56,6 @@ func RegisterProvider(registration *ProviderRegistration) error {
 func GetRegisteredProvider(id string) (*ProviderRegistration, bool) {
 	providerRegistry.RLock()
 	defer providerRegistry.RUnlock()
-
 	registration, exists := providerRegistry.providers[id]
 	return registration, exists
 }
@@ -69,7 +64,6 @@ func GetRegisteredProvider(id string) (*ProviderRegistration, bool) {
 func ListRegisteredProviders() []string {
 	providerRegistry.RLock()
 	defer providerRegistry.RUnlock()
-
 	var ids []string
 	for id := range providerRegistry.providers {
 		ids = append(ids, id)
@@ -78,35 +72,23 @@ func ListRegisteredProviders() []string {
 }
 
 // IsRegisteredProvider checks if a provider ID is registered
-func IsRegisteredProvider(id string) bool {
-	_, exists := GetRegisteredProvider(id)
-	return exists
-}
+func IsRegisteredProvider(id string) bool { _, exists := GetRegisteredProvider(id); return exists }
 
 // IsRegisteredOAuthProvider checks if a registered provider supports OAuth
 func IsRegisteredOAuthProvider(id string) bool {
 	registration, exists := GetRegisteredProvider(id)
-	if !exists {
-		return false
-	}
+	if !exists { return false }
 	return registration.SupportsOAuth
 }
 
 // CreateFromRegistry creates a provider using the registry
-func CreateFromRegistry(cfg config.ProviderConfig, opts providerClientOptions) (ProviderClient, bool) {
+func CreateFromRegistry(cfg config.ProviderConfig, opts providerClientOptions) (ProviderClient, bool, error) {
 	registration, exists := GetRegisteredProvider(cfg.ID)
-	if !exists {
-		return nil, false
-	}
-
-	// Validate type compatibility
-	if cfg.Type != "" && registration.Type != "" && cfg.Type != registration.Type {
-		return nil, false
-	}
-
-	// Create the provider using the registered constructor
-	client := registration.Constructor(opts)
-	return client, true
+	if !exists { return nil, false, nil }
+	if cfg.Type != "" && registration.Type != "" && cfg.Type != registration.Type { return nil, false, nil }
+	client, err := registration.Constructor(opts)
+	if err != nil { return nil, true, err }
+	return client, true, nil
 }
 
 // MustRegisterProvider registers a provider and panics on error (for init() functions)

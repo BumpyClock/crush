@@ -208,12 +208,11 @@ func NewProvider(cfg config.ProviderConfig, opts ...ProviderClientOption) (Provi
 	}
 
 	// First, check if this provider is registered in the registry
-	if client, found := CreateFromRegistry(cfg, clientOptions); found {
-		// Wrap the provider client in baseProvider interface
-		return &registryProvider{
-			options: clientOptions,
-			client:  client,
-		}, nil
+	if client, found, err := CreateFromRegistry(cfg, clientOptions); found {
+		if err != nil {
+			return nil, fmt.Errorf("failed to construct provider %s: %w", cfg.ID, err)
+		}
+		return &registryProvider{options: clientOptions, client: client}, nil
 	}
 
 	// Fall back to existing switch statement for built-in providers
