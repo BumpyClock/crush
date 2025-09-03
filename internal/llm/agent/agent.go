@@ -153,22 +153,24 @@ func NewAgent(
 	// Check if this agent has a custom definition with a system prompt
 	var systemMessage string
 	if cfg.AgentDefinitions != nil {
-		slog.Info("Checking for custom agent definition", 
+		slog.Info("Checking for custom agent definition",
 			"agent_id", agentCfg.ID,
 			"agent_name", agentCfg.Name,
 			"has_definitions", len(cfg.AgentDefinitions),
 		)
 		if def, ok := cfg.AgentDefinitions[agentCfg.ID]; ok && def.SystemPrompt != "" {
-			// Use custom system prompt from agent definition
-			systemMessage = def.SystemPrompt
-			slog.Info("Using custom system prompt", 
+			// Use custom system prompt from agent definition and append base context
+			basePrompt := prompt.GetPrompt(prompt.PromptSubAgent, providerCfg.ID)
+			systemMessage = def.SystemPrompt + "\n\n" + basePrompt
+			slog.Info("Using custom system prompt with base context",
 				"agent", agentCfg.ID,
-				"prompt_length", len(systemMessage),
+				"custom_prompt_length", len(def.SystemPrompt),
+				"total_prompt_length", len(systemMessage),
 			)
 		} else {
 			// Use default prompt
 			systemMessage = prompt.GetPrompt(promptID, providerCfg.ID, config.Get().Options.ContextPaths...)
-			slog.Info("Using default prompt", 
+			slog.Info("Using default prompt",
 				"agent", agentCfg.ID,
 				"prompt_id", promptID,
 			)
@@ -267,7 +269,7 @@ func NewAgent(
 				filteredTools = append(filteredTools, tool)
 			}
 		}
-		slog.Info("Agent tools filtered", 
+		slog.Info("Agent tools filtered",
 			"agent", agentCfg.ID,
 			"allowed_tools", agentCfg.AllowedTools,
 			"filtered_count", len(filteredTools),
@@ -537,17 +539,43 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			}
 		}
 		if agentMessage.FinishReason() == "" {
-			// Kujtim: could not track down where this is happening but this means its cancelled
-			agentMessage.AddFinish(message.FinishReasonCanceled, "Request cancelled", "")
-			_ = a.messages.Update(context.Background(), agentMessage)
-			return a.err(ErrRequestCancelled)
+			// This can happen if the provider doesn't properly set the finish reason
+			// Try to determine the appropriate finish reason based on the message state
+			slog.Warn("Agent message has empty finish reason, attempting to recover",
+				"session_id", sessionID,
+				"has_tool_calls", len(agentMessage.ToolCalls()) > 0,
+				"has_content", agentMessage.Content().String() != "",
+			)
+
+			// If there are tool calls, assume tool use
+			if len(agentMessage.ToolCalls()) > 0 {
+				agentMessage.AddFinish(message.FinishReasonToolUse, "Tool use detected", "")
+				_ = a.messages.Update(context.Background(), agentMessage)
+				// Continue processing with tool calls
+				msgHistory = append(msgHistory, agentMessage)
+				if toolResults != nil {
+					msgHistory = append(msgHistory, *toolResults)
+				}
+				continue
+			}
+
+			// If there's content, assume end turn
+			if agentMessage.Content().String() != "" {
+				agentMessage.AddFinish(message.FinishReasonEndTurn, "Response completed", "")
+				_ = a.messages.Update(context.Background(), agentMessage)
+			} else {
+				// No content and no tools - likely cancelled or error
+				agentMessage.AddFinish(message.FinishReasonCanceled, "Request interrupted", "")
+				_ = a.messages.Update(context.Background(), agentMessage)
+				return a.err(ErrRequestCancelled)
+			}
 		}
 		// Debug logging to understand agent response
 		var partTypes []string
 		for _, part := range agentMessage.Parts {
 			partTypes = append(partTypes, fmt.Sprintf("%T", part))
 		}
-		slog.Info("Agent completing with message details", 
+		slog.Info("Agent completing with message details",
 			"session_id", sessionID,
 			"message_role", agentMessage.Role,
 			"message_id", agentMessage.ID,

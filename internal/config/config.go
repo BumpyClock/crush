@@ -212,10 +212,12 @@ type Agent struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+	Color       string `json:"color,omitempty"` // Color for agent display in UI
 	// This is the id of the system prompt used by the agent
 	Disabled bool `json:"disabled,omitempty"`
 
-	Model SelectedModelType `json:"model" jsonschema:"required,description=The model type to use for this agent,enum=large,enum=small,default=large"`
+	Model         SelectedModelType `json:"model" jsonschema:"required,description=The model type to use for this agent,enum=large,enum=small,default=large"`
+	SpecificModel string            `json:"specific_model,omitempty"` // Specific model name (overrides Model type)
 
 	// The available tools for the agent
 	//  if this is nil, all tools are available

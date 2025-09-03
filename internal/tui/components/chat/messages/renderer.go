@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/ansiext"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/llm/agent"
 	"github.com/charmbracelet/crush/internal/llm/tools"
@@ -620,11 +621,71 @@ func (tr agentRenderer) Render(v *toolCallCmp) string {
 		agentName = agent.FormatAgentName(params.AgentName)
 	}
 
+	// Get agent color from config if available
+	agentColor := t.BlueLight // Default color
+	if params.AgentName != "" {
+		cfg := config.Get()
+		if agentDef, exists := cfg.AgentDefinitions[params.AgentName]; exists && agentDef.Color != "" {
+			// Map color names to theme colors
+			switch strings.ToLower(agentDef.Color) {
+			case "blue":
+				agentColor = t.Blue
+			case "green":
+				agentColor = t.Green
+			case "red":
+				agentColor = t.Red
+			case "yellow":
+				agentColor = t.Yellow
+			case "citron":
+				agentColor = t.Citron
+			case "cherry":
+				agentColor = t.Cherry
+			case "bluelight":
+				agentColor = t.BlueLight
+			case "greenlight":
+				agentColor = t.GreenLight
+			case "redlight":
+				agentColor = t.RedLight
+			case "greendark":
+				agentColor = t.GreenDark
+			case "reddark":
+				agentColor = t.RedDark
+				// Default is already set
+			}
+		} else if agentCfg, exists := cfg.Agents[params.AgentName]; exists && agentCfg.Color != "" {
+			// Check in the regular agents config as well
+			switch strings.ToLower(agentCfg.Color) {
+			case "blue":
+				agentColor = t.Blue
+			case "green":
+				agentColor = t.Green
+			case "red":
+				agentColor = t.Red
+			case "yellow":
+				agentColor = t.Yellow
+			case "citron":
+				agentColor = t.Citron
+			case "cherry":
+				agentColor = t.Cherry
+			case "bluelight":
+				agentColor = t.BlueLight
+			case "greenlight":
+				agentColor = t.GreenLight
+			case "redlight":
+				agentColor = t.RedLight
+			case "greendark":
+				agentColor = t.GreenDark
+			case "reddark":
+				agentColor = t.RedDark
+			}
+		}
+	}
+
 	header := tr.makeHeader(v, agentName, v.textWidth())
 	if res, done := earlyState(header, v); v.cancelled && done {
 		return res
 	}
-	taskTag := t.S().Base.Padding(0, 1).MarginLeft(1).Background(t.BlueLight).Foreground(t.White).Render("Task")
+	taskTag := t.S().Base.Padding(0, 1).MarginLeft(1).Background(agentColor).Foreground(t.White).Render("Task")
 	remainingWidth := v.textWidth() - lipgloss.Width(header) - lipgloss.Width(taskTag) - 2 // -2 for padding
 	prompt = t.S().Muted.Width(remainingWidth).Render(prompt)
 	header = lipgloss.JoinVertical(

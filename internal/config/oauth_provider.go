@@ -170,7 +170,6 @@ func RegisterBuiltinOAuthProviders() {
 	RegisterOAuthProvider(OAuthProvider{ID: "github-copilot", Name: "GitHub Copilot Subscription", Type: catwalk.TypeOpenAI, BaseURL: "https://api.githubcopilot.com", Models: DefaultModels("github-copilot")})
 }
 
-
 // Initialize OAuth providers
 func init() {
 	RegisterBuiltinOAuthProviders()

@@ -189,9 +189,29 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 		}
 	}
 
+	// Separate providers into priority and non-priority groups
+	var priorityProviders, regularProviders []catwalk.Provider
+
+	// First, add any OAuth providers that might not be in the known providers list
+	oauthProviders := config.GetOAuthProviders(cfg.Options.DataDirectory)
+	for _, oauthProvider := range oauthProviders {
+		if addedProviders[oauthProvider.ID] {
+			continue
+		}
+
+		// Convert to display provider and add to appropriate group
+		displayProvider := oauthProvider.ToDisplayProvider()
+		if oauthProvider.HasOAuthCredentials() {
+			priorityProviders = append(priorityProviders, displayProvider)
+		} else {
+			regularProviders = append(regularProviders, displayProvider)
+		}
+		addedProviders[oauthProvider.ID] = true
+	}
+
 	// Then add the known providers from the predefined list
 	for _, provider := range m.providers {
-		// Skip if we already added this provider as an unknown provider
+		// Skip if we already added this provider as an unknown provider or OAuth provider
 		if addedProviders[string(provider.ID)] {
 			continue
 		}
@@ -201,32 +221,23 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 			continue
 		}
 
-		name := provider.Name
-		if name == "" {
-			name = string(provider.ID)
+		// Sort into priority vs regular based on authentication status
+		if m.isProviderPriority(provider, cfg) {
+			priorityProviders = append(priorityProviders, provider)
+		} else {
+			regularProviders = append(regularProviders, provider)
 		}
+	}
 
-		section := list.NewItemSection(name)
-		if _, ok := cfg.Providers.Get(string(provider.ID)); ok {
-			section.SetInfo(configured)
-		}
-		group := list.Group[list.CompletionItem[ModelOption]]{
-			Section: section,
-		}
-		for _, model := range provider.Models {
-			item := list.NewCompletionItem(model.Name, ModelOption{
-				Provider: provider,
-				Model:    model,
-			},
-				list.WithCompletionID(
-					fmt.Sprintf("%s:%s", provider.ID, model.ID),
-				),
-			)
-			group.Items = append(group.Items, item)
-			if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
-				selectedItemID = item.ID()
-			}
-		}
+	// Add priority providers first
+	for _, provider := range priorityProviders {
+		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID)
+		groups = append(groups, group)
+	}
+
+	// Then add regular providers
+	for _, provider := range regularProviders {
+		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID)
 		groups = append(groups, group)
 	}
 
@@ -252,4 +263,57 @@ func (m *ModelListComponent) GetModelType() int {
 
 func (m *ModelListComponent) SetInputPlaceholder(placeholder string) {
 	m.list.SetInputPlaceholder(placeholder)
+}
+
+// isProviderPriority checks if a provider is authenticated/configured and should be prioritized
+func (m *ModelListComponent) isProviderPriority(provider catwalk.Provider, cfg *config.Config) bool {
+	providerID := string(provider.ID)
+
+	// Check if it's an OAuth provider with active credentials
+	if config.IsOAuthProvider(providerID) {
+		if oauthProvider, ok := config.GetOAuthProvider(providerID, cfg.Options.DataDirectory); ok {
+			return oauthProvider.HasOAuthCredentials()
+		}
+	}
+
+	// Check if it's a regular provider with API key configured
+	if providerConfig, exists := cfg.Providers.Get(providerID); exists {
+		return !providerConfig.Disable && providerConfig.APIKey != ""
+	}
+
+	return false
+}
+
+// createProviderGroup creates a list group for a provider with its models
+func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg *config.Config, configured string, currentModel config.SelectedModel, selectedItemID *string) list.Group[list.CompletionItem[ModelOption]] {
+	name := provider.Name
+	if name == "" {
+		name = string(provider.ID)
+	}
+
+	section := list.NewItemSection(name)
+	if _, ok := cfg.Providers.Get(string(provider.ID)); ok {
+		section.SetInfo(configured)
+	}
+
+	group := list.Group[list.CompletionItem[ModelOption]]{
+		Section: section,
+	}
+
+	for _, model := range provider.Models {
+		item := list.NewCompletionItem(model.Name, ModelOption{
+			Provider: provider,
+			Model:    model,
+		},
+			list.WithCompletionID(
+				fmt.Sprintf("%s:%s", provider.ID, model.ID),
+			),
+		)
+		group.Items = append(group.Items, item)
+		if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
+			*selectedItemID = item.ID()
+		}
+	}
+
+	return group
 }

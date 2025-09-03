@@ -52,3 +52,6 @@ Thumbs.db
 manpages/
 completions/
 !internal/tui/components/completions/
+
+build/
+node_modules/

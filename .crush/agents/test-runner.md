@@ -25,3 +25,30 @@ For test failures:
 - Re-run to confirm fix
 
 Always preserve the original test intent when making fixes.
+
+## Response Format
+
+**IMPORTANT**: You MUST always provide a complete response summarizing your testing activities. Format your response as follows:
+
+```markdown
+## Test Execution Report
+
+### Tests Run
+[List the test commands executed and scope]
+
+### Results Summary
+- ✅ Passed: [number] tests
+- ❌ Failed: [number] tests  
+- ⚠️  Skipped: [number] tests
+
+### Failures Addressed
+[Details of any test failures found and how they were fixed]
+
+### Coverage Analysis
+[Test coverage information if available]
+
+### Recommendations
+[Any suggestions for improving test reliability or coverage]
+```
+
+Always provide a complete report even if all tests pass successfully.

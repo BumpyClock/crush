@@ -14,6 +14,8 @@ import (
 type AgentDefinition struct {
 	Name         string   `yaml:"name"`
 	Description  string   `yaml:"description"`
+	Color        string   `yaml:"color,omitempty"`       // Color for agent display (e.g., "blue", "green", "red")
+	Model        string   `yaml:"model,omitempty"`       // Model to use: "large-task", "small-task", or specific model name
 	Tools        []string `yaml:"tools,omitempty"`       // If omitted, inherits all tools
 	MCPServers   []string `yaml:"mcp_servers,omitempty"` // If omitted, inherits all MCP servers
 	LSPServers   []string `yaml:"lsp_servers,omitempty"` // If omitted, inherits all LSP servers
@@ -108,6 +110,8 @@ func parseAgentMarkdown(content string) (*AgentDefinition, error) {
 	type agentDefString struct {
 		Name        string `yaml:"name"`
 		Description string `yaml:"description"`
+		Color       string `yaml:"color,omitempty"`
+		Model       string `yaml:"model,omitempty"`
 		Tools       string `yaml:"tools,omitempty"`
 		MCPServers  string `yaml:"mcp_servers,omitempty"`
 		LSPServers  string `yaml:"lsp_servers,omitempty"`
@@ -119,6 +123,8 @@ func parseAgentMarkdown(content string) (*AgentDefinition, error) {
 		agent := &AgentDefinition{
 			Name:        tempAgent.Name,
 			Description: tempAgent.Description,
+			Color:       tempAgent.Color,
+			Model:       tempAgent.Model,
 		}
 
 		// Parse comma-separated tools
@@ -195,12 +201,30 @@ func parseAgentMarkdown(content string) (*AgentDefinition, error) {
 }
 
 // ConvertDefinitionToAgent converts an AgentDefinition to an Agent config
-func ConvertDefinitionToAgent(def AgentDefinition, modelType SelectedModelType) Agent {
+func ConvertDefinitionToAgent(def AgentDefinition, defaultModelType SelectedModelType) Agent {
+	// Determine the model type based on the definition
+	modelType := defaultModelType
+	if def.Model != "" {
+		switch def.Model {
+		case "large-task", "large":
+			modelType = SelectedModelTypeLarge
+		case "small-task", "small":
+			modelType = SelectedModelTypeSmall
+			// If it's a specific model name, we'll handle it in SpecificModel field
+		}
+	}
+
 	agent := Agent{
 		ID:          def.Name,
 		Name:        def.Name,
 		Description: def.Description,
+		Color:       def.Color,
 		Model:       modelType,
+	}
+
+	// If a specific model is provided (not large-task or small-task), store it
+	if def.Model != "" && def.Model != "large-task" && def.Model != "small-task" && def.Model != "large" && def.Model != "small" {
+		agent.SpecificModel = def.Model
 	}
 
 	// If tools are specified, set AllowedTools

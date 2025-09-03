@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/llm/tools"
@@ -24,6 +26,70 @@ const (
 	AgentToolName = "agent"
 )
 
+const agentToolDescriptionTemplate = `Launch a new agent to handle complex, multi-step tasks autonomously. 
+
+Available agent types and the tools they have access to:
+{agents}
+
+When using the Agent tool, you must specify a agent_name parameter to select which agent type to use.
+
+When to use the Agent tool:
+- If you are searching for a keyword like "config" or "logger", or for questions like "which file does X?", the Agent tool is strongly recommended
+- If you want to read a specific file path, use the View or Glob tool instead of the Agent tool, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the Glob tool instead, to find the match more quickly
+- Other tasks that are not related to the agent descriptions above
+
+Usage notes:
+1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+2. **CRITICAL**: The result returned by the agent is NOT visible to the user. You MUST synthesize the agent's response into your own message to communicate findings to the user.
+3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
+4. The agent's outputs should generally be trusted
+5. IMPORTANT: The agent has access to ALL tools including file modification tools (Bash, Edit, MultiEdit, Write). You can delegate complex tasks to sub-agents to perform when you decide, allowing the main crush agent to preserve context.
+
+## Synthesis Guidelines
+
+**CRITICAL**: Sub-agent responses are invisible to users. You must translate their work into meaningful user-facing responses with appropriate detail.
+
+### Synthesis Patterns by Task Type
+
+**Code Discovery/Search**:
+- Good: "I found the authentication logic in auth/handler.go:89-156. It uses JWT tokens with role-based validation."
+- Poor: "The agent found the code."
+
+**Code Review/Analysis**:
+- Good: "The code reviewer identified 3 critical issues: SQL injection vulnerability in queries.go:45, missing error handling in api.go:123, and deprecated function usage in utils.go:67."
+- Poor: "The agent reviewed the code and found issues."
+
+**Implementation/Fixes**:
+- Good: "I've implemented the new caching layer using Redis. Added cache middleware in middleware/cache.go and updated the user service in services/user.go to use cached lookups."
+- Poor: "I've completed the implementation."
+
+**Testing/Validation**:
+- Good: "The test runner executed 47 tests with 3 failures: user validation test fails due to missing email format check, API timeout test fails in integration suite, and login flow test has assertion errors."
+- Poor: "The agent ran the tests."
+
+**Debugging/Investigation**:
+- Good: "The debugger traced the memory leak to the event listeners in dashboard.js:234. The issue occurs because cleanup handlers aren't being called when components unmount."
+- Poor: "The agent found the bug."
+
+**Refactoring/Optimization**:
+- Good: "The refactorer consolidated 4 duplicate data transformation functions into a single utility in utils/transform.go:45. This reduces code duplication by 150 lines and improves maintainability."
+- Poor: "The agent refactored the code."
+
+**Error/Partial Results**:
+- Good: "The task agent attempted to fix the failing tests but encountered permission issues accessing test/fixtures/. Manual intervention needed to update file permissions."
+- Poor: "The agent couldn't complete the task."
+
+### Quality Requirements
+
+1. **Be specific**: Include file paths, line numbers, function names, and exact findings
+2. **Provide context**: Explain WHY something matters, not just WHAT was found
+3. **Include next steps**: When relevant, mention what the user should do next
+4. **Acknowledge limitations**: If the sub-agent had partial success, explain what's left
+5. **Match detail to complexity**: Simple tasks need brief summaries, complex analysis needs comprehensive details
+
+Always provide enough detail that the user understands what was accomplished and can take appropriate action.`
+
 type AgentParams struct {
 	Prompt    string `json:"prompt"`
 	AgentName string `json:"agent_name,omitempty"` // Optional: specify which agent to use
@@ -34,9 +100,36 @@ func (b *agentTool) Name() string {
 }
 
 func (b *agentTool) Info() tools.ToolInfo {
+	// Build agent list dynamically
+	var agentList []string
+	for name, config := range b.agentConfigs {
+		if name == "coder" {
+			continue // Skip coder to avoid recursion
+		}
+		if config.Disabled {
+			continue // Skip disabled agents
+		}
+
+		description := config.Description
+		if description == "" {
+			description = "Specialized agent for various tasks"
+		}
+
+		agentList = append(agentList, fmt.Sprintf("- %s: %s", name, description))
+	}
+
+	// Sort for consistent ordering
+	sort.Strings(agentList)
+
+	// Replace placeholder in template
+	description := strings.Replace(agentToolDescriptionTemplate,
+		"{agents}",
+		strings.Join(agentList, "\n"),
+		1)
+
 	return tools.ToolInfo{
 		Name:        AgentToolName,
-		Description: "Launch a new agent that has access to the following tools: Bash, Download, Edit, MultiEdit, Fetch, Glob, Grep, LS, Sourcegraph, View, Write, Diagnostics (if LSP is enabled), and any configured MCP tools. When you are searching for a keyword or file and are not confident that you will find the right match on the first try, use the Agent tool to perform the search for you. For example:\n\n- If you are searching for a keyword like \"config\" or \"logger\", or for questions like \"which file does X?\", the Agent tool is strongly recommended\n- If you want to read a specific file path, use the View or GlobTool tool instead of the Agent tool, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use the GlobTool tool instead, to find the match more quickly\n\nUsage notes:\n1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses\n2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.\n3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.\n4. The agent's outputs should generally be trusted\n5. IMPORTANT: The agent has access to ALL tools including file modification tools (Bash, Edit, MultiEdit, Write). You can delegate complex tasks to sub-agents to perform when you decide, allowing the main crush agent to preserve context.",
+		Description: description,
 		Parameters: map[string]any{
 			"prompt": map[string]any{
 				"type":        "string",
@@ -44,10 +137,10 @@ func (b *agentTool) Info() tools.ToolInfo {
 			},
 			"agent_name": map[string]any{
 				"type":        "string",
-				"description": "Optional: name of a specific agent to use (e.g., 'task', 'coder', or a custom agent name). If not specified, uses the default 'task' agent.",
+				"description": "Name of the specific agent to use. Required. Choose from the available agents listed above.",
 			},
 		},
-		Required: []string{"prompt"},
+		Required: []string{"prompt", "agent_name"},
 	}
 }
 
@@ -60,10 +153,10 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		return tools.NewTextErrorResponse("prompt is required"), nil
 	}
 
-	// Default to task agent if not specified
+	// Agent name is now required
 	agentName := params.AgentName
 	if agentName == "" {
-		agentName = "task"
+		return tools.NewTextErrorResponse("agent_name is required. Check the tool description for available agents."), nil
 	}
 
 	// Log available agents for debugging
@@ -100,22 +193,42 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		return tools.ToolResponse{}, fmt.Errorf("error creating session: %s", err)
 	}
 
-	done, err := agent.Run(ctx, session.ID, params.Prompt)
+	// Create a new context with a reasonable timeout for sub-agents
+	// This prevents the sub-agent from inheriting a nearly-expired context
+	subAgentCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	// Copy essential values from parent context
+	if sessionID != "" {
+		subAgentCtx = context.WithValue(subAgentCtx, tools.SessionIDContextKey, sessionID)
+	}
+	if messageID != "" {
+		subAgentCtx = context.WithValue(subAgentCtx, tools.MessageIDContextKey, messageID)
+	}
+
+	done, err := agent.Run(subAgentCtx, session.ID, params.Prompt)
 	if err != nil {
 		return tools.ToolResponse{}, fmt.Errorf("error generating agent: %s", err)
 	}
-	result := <-done
-	if result.Error != nil {
-		return tools.ToolResponse{}, fmt.Errorf("error generating agent: %s", result.Error)
+
+	// Wait for result with a timeout
+	var response message.Message
+	select {
+	case result := <-done:
+		if result.Error != nil {
+			return tools.ToolResponse{}, fmt.Errorf("error generating agent: %s", result.Error)
+		}
+		response = result.Message
+	case <-subAgentCtx.Done():
+		return tools.ToolResponse{}, fmt.Errorf("sub-agent timed out after 30 minutes")
 	}
 
-	response := result.Message
 	// Debug logging to understand why "no response" is happening
 	var partTypes []string
 	for _, part := range response.Parts {
 		partTypes = append(partTypes, fmt.Sprintf("%T", part))
 	}
-	slog.Info("Agent tool response details", 
+	slog.Info("Agent tool response details",
 		"agent", agentName,
 		"message_role", response.Role,
 		"message_id", response.ID,
@@ -125,19 +238,145 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 		"parts_count", len(response.Parts),
 		"part_types", partTypes,
 	)
-	if response.Role != message.Assistant {
-		slog.Warn("Agent returned non-assistant message", "role", response.Role)
-		return tools.NewTextErrorResponse("no response"), nil
+
+	// Handle empty finish reasons - attempt recovery
+	finishReason := response.FinishReason()
+	if finishReason == "" {
+		slog.Warn("Sub-agent returned empty finish reason, attempting recovery",
+			"agent", agentName,
+			"has_tool_calls", len(response.ToolCalls()) > 0,
+			"has_content", response.Content().String() != "",
+		)
+
+		// Try to determine the appropriate finish reason based on message state
+		if len(response.ToolCalls()) > 0 {
+			// If there are tool calls, it should be tool use
+			finishReason = message.FinishReasonToolUse
+			slog.Info("Recovered finish reason as tool_use", "agent", agentName)
+		} else if response.Content().String() != "" {
+			// If there's content but no tools, assume end turn
+			finishReason = message.FinishReasonEndTurn
+			slog.Info("Recovered finish reason as end_turn", "agent", agentName)
+		} else {
+			// No content and no tools - likely cancelled or error
+			finishReason = message.FinishReasonCanceled
+			slog.Warn("Recovered finish reason as canceled due to no content or tools", "agent", agentName)
+		}
 	}
-	
-	// Check if the response has actual content
+
+	// Handle different finish reasons more gracefully
+	if finishReason == message.FinishReasonCanceled || finishReason == message.FinishReasonError {
+		errMsg := "Sub-agent execution was interrupted"
+		if finishReason == message.FinishReasonError {
+			errMsg = "Sub-agent encountered an error"
+		}
+		slog.Warn("Agent execution issue", "agent", agentName, "finish_reason", finishReason)
+		return tools.NewTextErrorResponse(errMsg), nil
+	}
+
+	if response.Role != message.Assistant {
+		slog.Warn("Agent returned non-assistant message", "role", response.Role, "agent", agentName)
+		// Try to extract any useful content from tool results
+		if response.Role == message.Tool {
+			for _, part := range response.Parts {
+				if tr, ok := part.(message.ToolResult); ok && !tr.IsError {
+					if tr.Content != "" {
+						return tools.NewTextResponse(tr.Content), nil
+					}
+				}
+			}
+		}
+		return tools.NewTextErrorResponse("Sub-agent did not produce a valid response"), nil
+	}
+
+	// Check if the response has actual content - try comprehensive recovery strategies
 	contentStr := response.Content().String()
 	if contentStr == "" {
-		slog.Warn("Agent returned empty content", 
+		slog.Warn("Agent returned empty content, attempting comprehensive recovery",
 			"agent", agentName,
-			"finish_reason", response.FinishReason(),
+			"prompt_length", len(params.Prompt),
+			"parts_count", len(response.Parts),
+			"tool_calls", len(response.ToolCalls()),
 		)
-		return tools.NewTextErrorResponse("no response"), nil
+
+		// Strategy 1: Check for reasoning content
+		reasoningContent := response.ReasoningContent()
+		if reasoningContent.Thinking != "" {
+			slog.Info("Using reasoning content as response", "agent", agentName)
+			contentStr = "Sub-agent analysis: " + reasoningContent.Thinking
+		} else {
+			// Strategy 2: Check for tool results with useful content
+			var toolOutputs []string
+			var errorOutputs []string
+			for _, part := range response.Parts {
+				if tr, ok := part.(message.ToolResult); ok {
+					if tr.IsError && tr.Content != "" {
+						errorOutputs = append(errorOutputs, fmt.Sprintf("%s error: %s", tr.Name, tr.Content))
+					} else if !tr.IsError && tr.Content != "" {
+						toolOutputs = append(toolOutputs, fmt.Sprintf("%s: %s", tr.Name, tr.Content))
+					}
+				}
+			}
+
+			if len(toolOutputs) > 0 {
+				slog.Info("Using tool result content as response", "agent", agentName, "tool_results_count", len(toolOutputs))
+				contentStr = "Sub-agent completed task with findings:\n" + strings.Join(toolOutputs, "\n")
+			} else if len(errorOutputs) > 0 {
+				slog.Info("Using tool error content as response", "agent", agentName, "error_count", len(errorOutputs))
+				contentStr = "Sub-agent encountered issues:\n" + strings.Join(errorOutputs, "\n")
+			} else {
+				// Strategy 3: Check text content in message parts
+				var textParts []string
+				for _, part := range response.Parts {
+					if textPart, ok := part.(message.TextContent); ok && textPart.Text != "" {
+						textParts = append(textParts, textPart.Text)
+					}
+				}
+
+				if len(textParts) > 0 {
+					slog.Info("Using text parts as response", "agent", agentName, "text_parts", len(textParts))
+					contentStr = strings.Join(textParts, " ")
+				} else if len(response.ToolCalls()) > 0 {
+					// Strategy 4: Tool calls without content - indicate activity
+					var toolNames []string
+					for _, tc := range response.ToolCalls() {
+						toolNames = append(toolNames, tc.Name)
+					}
+					slog.Info("Using tool call summary as response", "agent", agentName, "tools_used", toolNames)
+					contentStr = fmt.Sprintf("Sub-agent executed %d tools (%s) but produced no text output. The agent may have completed its task through tool actions.",
+						len(toolNames), strings.Join(toolNames, ", "))
+				} else {
+					// Strategy 5: Final fallback with detailed diagnostics
+					slog.Error("All recovery strategies failed - truly empty response",
+						"agent", agentName,
+						"finish_reason", finishReason,
+						"parts_count", len(response.Parts),
+						"has_tool_calls", len(response.ToolCalls()) > 0,
+						"has_reasoning", reasoningContent.Thinking != "",
+						"message_role", response.Role,
+					)
+					return tools.NewTextErrorResponse(fmt.Sprintf(
+						"Sub-agent '%s' completed but produced no output. "+
+							"This typically indicates the agent encountered an issue but didn't report it properly. "+
+							"Possible causes: task was unclear, agent lacked necessary permissions, or an internal error occurred. "+
+							"Consider re-running with more specific instructions or checking agent logs.",
+						agentName)), nil
+				}
+			}
+		}
+
+		// Validate that we actually recovered something meaningful
+		if contentStr == "" || strings.TrimSpace(contentStr) == "" {
+			slog.Error("Recovery failed - still no content after all strategies",
+				"agent", agentName,
+				"finish_reason", finishReason,
+			)
+			return tools.NewTextErrorResponse(fmt.Sprintf(
+				"Sub-agent '%s' failed to provide any response despite multiple recovery attempts. "+
+					"This suggests a serious issue with the agent or task execution. "+
+					"Please check the task requirements and try again with simpler instructions.",
+				agentName)), nil
+		}
 	}
 
 	updatedSession, err := b.sessions.Get(ctx, session.ID)
@@ -155,7 +394,7 @@ func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolRes
 	if err != nil {
 		return tools.ToolResponse{}, fmt.Errorf("error saving parent session: %s", err)
 	}
-	return tools.NewTextResponse(response.Content().String()), nil
+	return tools.NewTextResponse(contentStr), nil
 }
 
 // FormatAgentName formats an agent ID into a proper display name

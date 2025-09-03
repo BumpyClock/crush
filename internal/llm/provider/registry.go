@@ -77,17 +77,25 @@ func IsRegisteredProvider(id string) bool { _, exists := GetRegisteredProvider(i
 // IsRegisteredOAuthProvider checks if a registered provider supports OAuth
 func IsRegisteredOAuthProvider(id string) bool {
 	registration, exists := GetRegisteredProvider(id)
-	if !exists { return false }
+	if !exists {
+		return false
+	}
 	return registration.SupportsOAuth
 }
 
 // CreateFromRegistry creates a provider using the registry
 func CreateFromRegistry(cfg config.ProviderConfig, opts providerClientOptions) (ProviderClient, bool, error) {
 	registration, exists := GetRegisteredProvider(cfg.ID)
-	if !exists { return nil, false, nil }
-	if cfg.Type != "" && registration.Type != "" && cfg.Type != registration.Type { return nil, false, nil }
+	if !exists {
+		return nil, false, nil
+	}
+	if cfg.Type != "" && registration.Type != "" && cfg.Type != registration.Type {
+		return nil, false, nil
+	}
 	client, err := registration.Constructor(opts)
-	if err != nil { return nil, true, err }
+	if err != nil {
+		return nil, true, err
+	}
 	return client, true, nil
 }
 

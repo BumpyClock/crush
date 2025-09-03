@@ -23,7 +23,9 @@ var defaultOAuthModels = map[string][]catwalk.Model{
 // DefaultModels returns a copy of the default model slice for a provider.
 func DefaultModels(providerID string) []catwalk.Model {
 	models, ok := defaultOAuthModels[providerID]
-	if !ok || len(models) == 0 { return nil }
+	if !ok || len(models) == 0 {
+		return nil
+	}
 	out := make([]catwalk.Model, len(models))
 	copy(out, models)
 	return out

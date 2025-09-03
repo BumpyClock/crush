@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\adityasharma\\Projects\\crush\\internal\\tui\\components\\dialogs\\models\")",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\tool/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\tool/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\tool/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\tool/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session\\prompt/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\tool/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

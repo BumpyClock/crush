@@ -19,6 +19,7 @@ const (
 	PromptTitle      PromptID = "title"
 	PromptTask       PromptID = "task"
 	PromptSummarizer PromptID = "summarizer"
+	PromptSubAgent   PromptID = "subagent"
 	PromptDefault    PromptID = "default"
 )
 
@@ -33,6 +34,8 @@ func GetPrompt(promptID PromptID, provider string, contextPaths ...string) strin
 		basePrompt = TaskPrompt()
 	case PromptSummarizer:
 		basePrompt = SummarizerPrompt()
+	case PromptSubAgent:
+		basePrompt = SubAgentBasePrompt(provider)
 	default:
 		basePrompt = "You are a helpful assistant"
 	}
