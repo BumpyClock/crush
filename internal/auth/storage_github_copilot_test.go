@@ -12,7 +12,8 @@ func TestGithubCopilotStorage(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	am := NewAuthManager(dir)
+	// Use the test-specific constructor for testing
+	am := NewAuthManagerWithDir(dir)
 
 	require.False(t, am.HasGithubCopilotAuth())
 

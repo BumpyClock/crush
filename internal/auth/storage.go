@@ -14,6 +14,7 @@ import (
 const (
 	AuthFileName = "auth.json"
 	AuthFileMode = 0o600 // Read/write for owner only
+	appName      = "crush"
 )
 
 type OAuthCredentials struct {
@@ -36,8 +37,31 @@ type AuthManager struct {
 	mu      sync.RWMutex
 }
 
-// NewAuthManager creates a new authentication manager
+// globalAuthDir returns a global directory for storing auth credentials.
+func globalAuthDir() string {
+	if xdgData := os.Getenv("XDG_DATA_HOME"); xdgData != "" {
+		return filepath.Join(xdgData, appName)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "." // fallback to current directory (should not generally happen)
+	}
+	return filepath.Join(home, "."+appName)
+}
+
+// NewAuthManager creates a new authentication manager.
+// Auth credentials are always stored in the global auth directory (~/.crush)
+// so that they are shared across all projects. The dataDir parameter is ignored.
 func NewAuthManager(dataDir string) *AuthManager {
+	// Always use global auth directory to ensure credentials are shared across projects
+	return &AuthManager{
+		dataDir: globalAuthDir(),
+	}
+}
+
+// NewAuthManagerWithDir creates an auth manager with a specific directory.
+// This is primarily for testing purposes.
+func NewAuthManagerWithDir(dataDir string) *AuthManager {
 	return &AuthManager{
 		dataDir: dataDir,
 	}
