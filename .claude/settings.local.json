@@ -30,7 +30,8 @@
       "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
       "Read(C:\\Users\\adityasharma\\Projects\\opencode/**)",
       "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\agent/**)",
-      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session/**)"
+      "Read(C:\\Users\\adityasharma\\Projects\\opencode\\packages\\opencode\\src\\session/**)",
+      "Bash(git fetch:*)"
     ],
     "deny": [],
     "ask": []
