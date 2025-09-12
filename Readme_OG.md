@@ -152,6 +152,11 @@ This fork includes support for Claude Max and Pro subscribers to use their subsc
 - **Latest Models**: Access to the newest Claude models as they become available
 - **Secure Authentication**: OAuth 2.0 with PKCE for secure credential management
 
+Note: Subscription OAuth credentials are stored globally per-user, not per-project, so you only need to run `crush auth login` once on a machine. Locations:
+- Windows: `%LOCALAPPDATA%\crush\auth.json`
+- Linux: `$XDG_DATA_HOME/crush/auth.json` or `$HOME/.local/share/crush/auth.json`
+- macOS: `$XDG_DATA_HOME/crush/auth.json` or `$HOME/.local/share/crush/auth.json`
+
 ### Configuration
 
 The Claude Max/Pro provider can be configured like any other provider:

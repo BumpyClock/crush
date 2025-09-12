@@ -109,15 +109,9 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 			}()
 
 			// Add OAuth providers to cached list (use config if loaded, else default working dir)
-			dataDirectory := ""
-			if cfg := Get(); cfg != nil {
-				dataDirectory = cfg.Options.DataDirectory
-			} else {
-				if wd, err := os.Getwd(); err == nil {
-					dataDirectory = filepath.Join(wd, defaultDataDirectory)
-				}
-			}
-			oauthProviders := GetOAuthProviders(dataDirectory)
+            // Use global data directory for OAuth credentials
+            dataDirectory := GlobalDataDir()
+            oauthProviders := GetOAuthProviders(dataDirectory)
 			for _, oauthProvider := range oauthProviders {
 				displayProvider := oauthProvider.ToDisplayProvider()
 				providerList = append(providerList, displayProvider)
@@ -133,15 +127,9 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 		err = saveProvidersInCache(path, providerList)
 
 		// Add OAuth providers to live list
-		dataDirectory := ""
-		if cfg := Get(); cfg != nil {
-			dataDirectory = cfg.Options.DataDirectory
-		} else {
-			if wd, err := os.Getwd(); err == nil {
-				dataDirectory = filepath.Join(wd, defaultDataDirectory)
-			}
-		}
-		oauthProviders := GetOAuthProviders(dataDirectory)
+        // Use global data directory for OAuth credentials
+        dataDirectory := GlobalDataDir()
+        oauthProviders := GetOAuthProviders(dataDirectory)
 		for _, oauthProvider := range oauthProviders {
 			displayProvider := oauthProvider.ToDisplayProvider()
 			providerList = append(providerList, displayProvider)
@@ -153,15 +141,9 @@ func loadProviders(client ProviderClient, path string) (providerList []catwalk.P
 	providerList, err = loadProvidersFromCache(path)
 
 	// Add OAuth providers to fallback cache list
-	dataDirectory := ""
-	if cfg := Get(); cfg != nil {
-		dataDirectory = cfg.Options.DataDirectory
-	} else {
-		if wd, err := os.Getwd(); err == nil {
-			dataDirectory = filepath.Join(wd, defaultDataDirectory)
-		}
-	}
-	oauthProviders := GetOAuthProviders(dataDirectory)
+    // Use global data directory for OAuth credentials
+    dataDirectory := GlobalDataDir()
+    oauthProviders := GetOAuthProviders(dataDirectory)
 	for _, oauthProvider := range oauthProviders {
 		displayProvider := oauthProvider.ToDisplayProvider()
 		providerList = append(providerList, displayProvider)

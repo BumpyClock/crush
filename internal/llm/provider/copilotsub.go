@@ -30,7 +30,7 @@ func newCopilotSubClient(opts providerClientOptions) (ProviderClient, error) {
 		return nil, fmt.Errorf("configuration not loaded")
 	}
 
-	authManager := auth.NewAuthManager(cfg.Options.DataDirectory)
+    authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	// Build HTTP client that injects Copilot token + headers.
 	httpClient, err := createCopilotSubHTTPClient()

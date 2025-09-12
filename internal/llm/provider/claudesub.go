@@ -40,7 +40,7 @@ func newClaudeSubClient(opts providerClientOptions) (ProviderClient, error) {
 	// Automatically inject system prompt prefix for OAuth authentication
 	opts.systemPromptPrefix = systemPromptPrefix
 
-	authManager := auth.NewAuthManager(cfg.Options.DataDirectory)
+    authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	useOAuth := authManager.HasClaudeSubAuth()
 

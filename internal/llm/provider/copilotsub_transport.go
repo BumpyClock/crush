@@ -68,7 +68,7 @@ func createCopilotSubHTTPClient() (*http.Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration not loaded")
 	}
-	am := auth.NewAuthManager(cfg.Options.DataDirectory)
+    am := auth.NewAuthManager(config.GlobalDataDir())
 	if !am.HasGithubCopilotAuth() {
 		return nil, fmt.Errorf("no GitHub Copilot auth found - run 'crush auth login'")
 	}

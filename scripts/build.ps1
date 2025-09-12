@@ -57,6 +57,14 @@ function Build-One($arch) {
   $prevGOARCH = Save-And-SetEnv 'GOARCH' $arch
   $prevCGO = Save-And-SetEnv 'CGO_ENABLED' '0'
   try {
+    # Ensure previous binary does not block overwrite on Windows.
+    if (Test-Path $out) {
+      try {
+        Remove-Item -Force -ErrorAction Stop $out
+      } catch {
+        Write-Warning "Failed to remove existing '$out'. It may be in use."
+      }
+    }
     & go build -o $out .
   }
   finally {
