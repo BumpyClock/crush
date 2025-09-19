@@ -73,7 +73,7 @@ Execute the task using the tools below.`
 
 	// Add tool instructions
 	toolInfo := getToolInstructions()
-	
+
 	// Add environment information
 	envInfo := getEnvironmentInfo()
 
@@ -98,7 +98,7 @@ Use the tools below to complete the assigned task.`
 
 	// Add tool instructions
 	toolInfo := getToolInstructions()
-	
+
 	// Add environment information
 	envInfo := getEnvironmentInfo()
 
@@ -153,7 +153,7 @@ Remember: An incomplete response with explanation is better than no response. Th
 
 	// Add tool instructions
 	toolInfo := getToolInstructions()
-	
+
 	// Add environment information
 	envInfo := getEnvironmentInfo()
 

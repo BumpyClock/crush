@@ -98,7 +98,7 @@ func createClaudeSubHTTPClient() (*http.Client, error) {
 		return nil, fmt.Errorf("configuration not loaded")
 	}
 
-    authManager := auth.NewAuthManager(config.GlobalDataDir())
+	authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	if !authManager.HasClaudeSubAuth() {
 		return nil, fmt.Errorf("no OAuth credentials found - run 'crush auth login' first")

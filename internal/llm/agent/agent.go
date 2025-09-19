@@ -114,7 +114,10 @@ func NewAgent(
 			if err != nil {
 				return nil, fmt.Errorf("failed to create task agent: %w", err)
 			}
-			return NewAgentTool(taskAgent, sessions, messages), nil
+			// Create a single-agent map for compatibility with our current NewAgentTool
+			agents := map[string]Service{"task": taskAgent}
+			agentConfigs := map[string]config.Agent{"task": taskAgentCfg}
+			return NewAgentTool(agents, agentConfigs, sessions, messages), nil
 		}
 	}
 
@@ -1125,4 +1128,3 @@ func (a *agent) UpdateModel() error {
 
 	return nil
 }
-

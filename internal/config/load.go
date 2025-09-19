@@ -612,15 +612,15 @@ func GlobalConfigData() string {
 	// return the path to the main data directory
 	// for windows, it should be in `%LOCALAPPDATA%/crush/`
 	// for linux and macOS, it should be in `$HOME/.local/share/crush/`
-    if runtime.GOOS == "windows" {
-        localAppData := os.Getenv("LOCALAPPDATA")
-        if localAppData == "" {
-            localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
-        }
-        return filepath.Join(localAppData, appName, fmt.Sprintf("%s.json", appName))
-    }
+	if runtime.GOOS == "windows" {
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
+		}
+		return filepath.Join(localAppData, appName, fmt.Sprintf("%s.json", appName))
+	}
 
-    return filepath.Join(home.Dir(), ".local", "share", appName, fmt.Sprintf("%s.json", appName))
+	return filepath.Join(home.Dir(), ".local", "share", appName, fmt.Sprintf("%s.json", appName))
 }
 
 // GlobalDataDir returns the global data directory where Crush should store
@@ -628,15 +628,15 @@ func GlobalConfigData() string {
 // %LOCALAPPDATA%\crush, and on Unix it follows XDG_DATA_HOME or
 // $HOME/.local/share/crush.
 func GlobalDataDir() string {
-    if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-        return filepath.Join(xdg, appName)
-    }
-    if runtime.GOOS == "windows" {
-        localAppData := os.Getenv("LOCALAPPDATA")
-        if localAppData == "" {
-            localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
-        }
-        return filepath.Join(localAppData, appName)
-    }
-    return filepath.Join(home.Dir(), ".local", "share", appName)
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, appName)
+	}
+	if runtime.GOOS == "windows" {
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
+		}
+		return filepath.Join(localAppData, appName)
+	}
+	return filepath.Join(home.Dir(), ".local", "share", appName)
 }

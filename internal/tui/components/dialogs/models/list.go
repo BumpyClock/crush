@@ -194,7 +194,7 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 	var priorityProviders, regularProviders []catwalk.Provider
 
 	// First, add any OAuth providers that might not be in the known providers list
-    oauthProviders := config.GetOAuthProviders(config.GlobalDataDir())
+	oauthProviders := config.GetOAuthProviders(config.GlobalDataDir())
 	for _, oauthProvider := range oauthProviders {
 		if addedProviders[oauthProvider.ID] {
 			continue
@@ -271,11 +271,11 @@ func (m *ModelListComponent) isProviderPriority(provider catwalk.Provider, cfg *
 	providerID := string(provider.ID)
 
 	// Check if it's an OAuth provider with active credentials
-        if config.IsOAuthProvider(providerID) {
-            if oauthProvider, ok := config.GetOAuthProvider(providerID, config.GlobalDataDir()); ok {
-                return oauthProvider.HasOAuthCredentials()
-            }
-        }
+	if config.IsOAuthProvider(providerID) {
+		if oauthProvider, ok := config.GetOAuthProvider(providerID, config.GlobalDataDir()); ok {
+			return oauthProvider.HasOAuthCredentials()
+		}
+	}
 
 	// Check if it's a regular provider with API key configured
 	if providerConfig, exists := cfg.Providers.Get(providerID); exists {

@@ -59,10 +59,10 @@ func init() {
 
 // runAuthLogin handles the authentication login process.
 func runAuthLogin(ctx context.Context) error {
-    if _, err := config.Load("", "", false); err != nil {
-        return fmt.Errorf("failed to load configuration: %w", err)
-    }
-    authManager := auth.NewAuthManager(config.GlobalDataDir())
+	if _, err := config.Load("", "", false); err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	// Show current status but do not early-return; allow logging into another provider.
 	fmt.Println("🔐 Subscription Authentication")
@@ -224,10 +224,10 @@ func authenticateGithubCopilot(ctx context.Context, authManager *auth.AuthManage
 
 // runAuthLogout handles the authentication logout process.
 func runAuthLogout(ctx context.Context) error {
-    if _, err := config.Load("", "", false); err != nil {
-        return fmt.Errorf("failed to load configuration: %w", err)
-    }
-    authManager := auth.NewAuthManager(config.GlobalDataDir())
+	if _, err := config.Load("", "", false); err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	// Offer to log out from either provider if present.
 	hadAny := false
@@ -257,10 +257,10 @@ func runAuthLogout(ctx context.Context) error {
 
 // runAuthStatus displays the current authentication status.
 func runAuthStatus(ctx context.Context) error {
-    if _, err := config.Load("", "", false); err != nil {
-        return fmt.Errorf("failed to load configuration: %w", err)
-    }
-    authManager := auth.NewAuthManager(config.GlobalDataDir())
+	if _, err := config.Load("", "", false); err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	authManager := auth.NewAuthManager(config.GlobalDataDir())
 
 	fmt.Println("🔐 Authentication Status")
 	fmt.Println("========================")
