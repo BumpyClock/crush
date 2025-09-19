@@ -72,6 +72,8 @@ type agent struct {
 	mcpTools []McpTool
 
 	tools *csync.LazySlice[tools.BaseTool]
+	// We need this to be able to update it when model changes
+	agentToolFn func() (tools.BaseTool, error)
 
 	provider   provider.Provider
 	providerID string
@@ -81,8 +83,7 @@ type agent struct {
 	summarizeProviderID string
 
 	activeRequests *csync.Map[string, context.CancelFunc]
-
-	promptQueue *csync.Map[string, []string]
+	promptQueue    *csync.Map[string, []string]
 }
 
 var agentPromptMap = map[string]prompt.PromptID{
@@ -98,40 +99,22 @@ func NewAgent(
 	sessions session.Service,
 	messages message.Service,
 	history history.Service,
-	lspClients map[string]*lsp.Client,
+	lspClients *csync.Map[string, *lsp.Client],
 ) (Service, error) {
 	cfg := config.Get()
 
-	var agentTool tools.BaseTool
+	var agentToolFn func() (tools.BaseTool, error)
 	if agentCfg.ID == "coder" {
-		// Create all available sub-agents for the coder agent to use
-		subAgents := make(map[string]Service)
-		subAgentConfigs := make(map[string]config.Agent)
-
-		slog.Info("Creating sub-agents for coder", "total_agents", len(cfg.Agents))
-
-		// Add all configured agents as sub-agents (except coder itself to avoid recursion)
-		for name, subAgentCfg := range cfg.Agents {
-			if name == "coder" {
-				continue // Skip coder agent to avoid recursion
+		agentToolFn = func() (tools.BaseTool, error) {
+			taskAgentCfg := config.Get().Agents["task"]
+			if taskAgentCfg.ID == "" {
+				return nil, fmt.Errorf("task agent not found in config")
 			}
-
-			slog.Info("Creating sub-agent", "name", name, "id", subAgentCfg.ID)
-			subAgent, err := NewAgent(ctx, subAgentCfg, permissions, sessions, messages, history, lspClients)
+			taskAgent, err := NewAgent(ctx, taskAgentCfg, permissions, sessions, messages, history, lspClients)
 			if err != nil {
-				slog.Warn("Failed to create sub-agent", "agent", name, "error", err)
-				continue
+				return nil, fmt.Errorf("failed to create task agent: %w", err)
 			}
-			subAgents[name] = subAgent
-			subAgentConfigs[name] = subAgentCfg
-			slog.Info("Successfully created sub-agent", "name", name)
-		}
-
-		slog.Info("Created sub-agents", "count", len(subAgents), "names", getSubAgentNames(subAgents))
-
-		// Create the agent tool with all available sub-agents
-		if len(subAgents) > 0 {
-			agentTool = NewAgentTool(subAgents, subAgentConfigs, sessions, messages)
+			return NewAgentTool(taskAgent, sessions, messages), nil
 		}
 	}
 
@@ -232,7 +215,7 @@ func NewAgent(
 
 		cwd := cfg.WorkingDir()
 		allTools := []tools.BaseTool{
-			tools.NewBashTool(permissions, cwd),
+			tools.NewBashTool(permissions, cwd, cfg.Options.Attribution),
 			tools.NewDownloadTool(permissions, cwd),
 			tools.NewEditTool(lspClients, permissions, history, cwd),
 			tools.NewMultiEditTool(lspClients, permissions, history, cwd),
@@ -248,19 +231,19 @@ func NewAgent(
 		mcpToolsOnce.Do(func() {
 			mcpTools = doGetMCPTools(ctx, permissions, cfg)
 		})
-		allTools = append(allTools, mcpTools...)
 
-		if len(lspClients) > 0 {
-			allTools = append(allTools, tools.NewDiagnosticsTool(lspClients))
-		}
-
-		if agentTool != nil {
-			allTools = append(allTools, agentTool)
+		withCoderTools := func(t []tools.BaseTool) []tools.BaseTool {
+			if agentCfg.ID == "coder" {
+				t = append(t, mcpTools...)
+				if lspClients.Len() > 0 {
+					t = append(t, tools.NewDiagnosticsTool(lspClients))
+				}
+			}
+			return t
 		}
 
 		if agentCfg.AllowedTools == nil {
-			slog.Info("Agent has access to all tools", "agent", agentCfg.ID, "tool_count", len(allTools))
-			return allTools
+			return withCoderTools(allTools)
 		}
 
 		var filteredTools []tools.BaseTool
@@ -269,13 +252,7 @@ func NewAgent(
 				filteredTools = append(filteredTools, tool)
 			}
 		}
-		slog.Info("Agent tools filtered",
-			"agent", agentCfg.ID,
-			"allowed_tools", agentCfg.AllowedTools,
-			"filtered_count", len(filteredTools),
-			"total_count", len(allTools),
-		)
-		return filteredTools
+		return withCoderTools(filteredTools)
 	}
 
 	return &agent{
@@ -288,6 +265,7 @@ func NewAgent(
 		titleProvider:       titleProvider,
 		summarizeProvider:   summarizeProvider,
 		summarizeProviderID: string(providerCfg.ID),
+		agentToolFn:         agentToolFn,
 		activeRequests:      csync.NewMap[string, context.CancelFunc](),
 		tools:               csync.NewLazySlice(toolFn),
 		promptQueue:         csync.NewMap[string, []string](),
@@ -401,7 +379,7 @@ func (a *agent) Run(ctx context.Context, sessionID string, content string, attac
 	if !a.Model().SupportsImages && attachments != nil {
 		attachments = nil
 	}
-	events := make(chan AgentEvent)
+	events := make(chan AgentEvent, 1)
 	if a.IsSessionBusy(sessionID) {
 		existing, ok := a.promptQueue.Get(sessionID)
 		if !ok {
@@ -432,10 +410,7 @@ func (a *agent) Run(ctx context.Context, sessionID string, content string, attac
 		a.activeRequests.Del(sessionID)
 		cancel()
 		a.Publish(pubsub.CreatedEvent, result)
-		select {
-		case events <- result:
-		case <-genCtx.Done():
-		}
+		events <- result
 		close(events)
 	}()
 	return events, nil
@@ -602,6 +577,18 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 	})
 }
 
+func (a *agent) getAllTools() ([]tools.BaseTool, error) {
+	allTools := slices.Collect(a.tools.Seq())
+	if a.agentToolFn != nil {
+		agentTool, agentToolErr := a.agentToolFn()
+		if agentToolErr != nil {
+			return nil, agentToolErr
+		}
+		allTools = append(allTools, agentTool)
+	}
+	return allTools, nil
+}
+
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, sessionID)
 
@@ -616,8 +603,12 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 		return assistantMsg, nil, fmt.Errorf("failed to create assistant message: %w", err)
 	}
 
+	allTools, toolsErr := a.getAllTools()
+	if toolsErr != nil {
+		return assistantMsg, nil, toolsErr
+	}
 	// Now collect tools (which may block on MCP initialization)
-	eventChan := a.provider.StreamResponse(ctx, msgHistory, slices.Collect(a.tools.Seq()))
+	eventChan := a.provider.StreamResponse(ctx, msgHistory, allTools)
 
 	// Add the session and message ID into the context if needed by tools.
 	ctx = context.WithValue(ctx, tools.MessageIDContextKey, assistantMsg.ID)
@@ -656,7 +647,8 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 		default:
 			// Continue processing
 			var tool tools.BaseTool
-			for availableTool := range a.tools.Seq() {
+			allTools, _ := a.getAllTools()
+			for _, availableTool := range allTools {
 				if availableTool.Info().Name == toolCall.Name {
 					tool = availableTool
 					break
@@ -1134,10 +1126,3 @@ func (a *agent) UpdateModel() error {
 	return nil
 }
 
-func getSubAgentNames(agents map[string]Service) []string {
-	var names []string
-	for name := range agents {
-		names = append(names, name)
-	}
-	return names
-}
