@@ -1,9 +1,7 @@
 {
   "$schema": "https://charm.land/crush.json",
   "lsp": {
-    "Go": {
-      "command": "gopls"
-    }
+    "gopls": {}
   },
   "providers": {
     "claudesub": {
