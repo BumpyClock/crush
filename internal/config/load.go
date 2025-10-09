@@ -1,12 +1,14 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -61,6 +63,16 @@ func Load(workingDir, dataDir string, debug bool) (*Config, error) {
 		filepath.Join(cfg.Options.DataDirectory, "logs", fmt.Sprintf("%s.log", appName)),
 		cfg.Options.Debug,
 	)
+
+	if !isInsideWorktree() {
+		const depth = 2
+		const items = 100
+		slog.Warn("No git repository detected in working directory, will limit file walk operations", "depth", depth, "items", items)
+		assignIfNil(&cfg.Tools.Ls.MaxDepth, depth)
+		assignIfNil(&cfg.Tools.Ls.MaxItems, items)
+		assignIfNil(&cfg.Options.TUI.Completions.MaxDepth, depth)
+		assignIfNil(&cfg.Options.TUI.Completions.MaxItems, items)
+	}
 
 	// Load known providers, this loads the config from catwalk
 	providers, err := Providers(cfg)
@@ -529,7 +541,7 @@ func (c *Config) configureSelectedModels(knownProviders []catwalk.Provider) erro
 func lookupConfigs(cwd string) []string {
 	// prepend default config paths
 	configPaths := []string{
-		globalConfig(),
+		GlobalConfig(),
 		GlobalConfigData(),
 	}
 
@@ -605,7 +617,8 @@ func hasAWSCredentials(env env.Env) bool {
 	return false
 }
 
-func globalConfig() string {
+// GlobalConfig returns the global configuration file path for the application.
+func GlobalConfig() string {
 	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	if xdgConfigHome != "" {
 		return filepath.Join(xdgConfigHome, appName, fmt.Sprintf("%s.json", appName))
@@ -663,4 +676,19 @@ func GlobalDataDir() string {
 		return filepath.Join(localAppData, appName)
 	}
 	return filepath.Join(home.Dir(), ".local", "share", appName)
+}
+
+func assignIfNil[T any](ptr **T, val T) {
+	if *ptr == nil {
+		*ptr = &val
+	}
+}
+
+func isInsideWorktree() bool {
+	bts, err := exec.CommandContext(
+		context.Background(),
+		"git", "rev-parse",
+		"--is-inside-work-tree",
+	).CombinedOutput()
+	return err == nil && strings.TrimSpace(string(bts)) == "true"
 }
