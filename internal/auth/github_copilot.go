@@ -19,7 +19,7 @@ const (
 	accessTokenURL  = "https://github.com/login/oauth/access_token"
 	copilotTokenURL = "https://api.github.com/copilot_internal/v2/token"
 	ghUserAgent     = "GitHubCopilotChat/0.26.7"
-	ghEditorVersion = "vscode/1.99.3"
+	ghEditorVersion = "vscode/1.104.1"
 	ghPluginVersion = "copilot-chat/0.26.7"
 )
 

@@ -102,6 +102,10 @@ function Install-Host($os, $arch) {
   $binDir = Join-Path $HOME '.local/bin'
   if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir -Force | Out-Null }
   $dest = Join-Path $binDir ("crush{0}" -f $ext)
+  if (Test-Path $dest) {
+    Write-Host "Found existing binary at $dest, deleting before installing new binary"
+    Remove-Item -Force $dest
+  }
   Write-Host "Installing $src -> $dest"
   Copy-Item -Force $src $dest
 }

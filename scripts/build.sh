@@ -99,6 +99,10 @@ install_host() {
   local bin_dir="$HOME/.local/bin"
   mkdir -p "$bin_dir"
   local dest="$bin_dir/crush"
+  if [[ -f "$dest" ]]; then
+    echo "Found existing binary at $dest, deleting before installing new binary"
+    rm -f "$dest"
+  fi
   echo "Installing $src -> $dest"
   install -m 0755 "$src" "$dest"
 }
