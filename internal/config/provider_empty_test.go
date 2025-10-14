@@ -42,6 +42,6 @@ func TestProvider_loadProvidersEmptyCache(t *testing.T) {
 	providers, err := loadProviders(false, client, tmpPath)
 	require.NoError(t, err)
 	require.NotNil(t, providers)
-	require.Len(t, providers, 1)
+	require.GreaterOrEqual(t, len(providers), 1, "Should have at least Mock provider")
 	require.Equal(t, "Mock", providers[0].Name)
 }

@@ -88,7 +88,7 @@ func (p *OAuthProvider) ToDisplayProvider() catwalk.Provider {
 	if !p.HasOAuthCredentials() {
 		name += " (Auth Required)"
 	}
-	// Determine model list for GitHub Copilot.
+	// Determine model list for OAuth providers.
 	models := p.Models
 	if p.ID == "github-copilot" {
 		// Prefer models.dev for freshest catalogue; fall back to Copilot /v1/models when authenticated.
@@ -98,6 +98,11 @@ func (p *OAuthProvider) ToDisplayProvider() catwalk.Provider {
 			if fetched2, err2 := fetchCopilotModels(p.AuthManager); err2 == nil && len(fetched2) > 0 {
 				models = fetched2
 			}
+		}
+	} else if p.ID == "claudesub" {
+		// Prefer models.dev for Claude subscription models.
+		if fetched, err := fetchModelsDevProvider("anthropic"); err == nil && len(fetched) > 0 {
+			models = fetched
 		}
 	}
 
