@@ -3,12 +3,12 @@ package completions
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/tui/exp/list"
 	"github.com/charmbracelet/crush/internal/tui/styles"
 	"github.com/charmbracelet/crush/internal/tui/util"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
 const maxCompletionsHeight = 10
@@ -22,6 +22,7 @@ type OpenCompletionsMsg struct {
 	Completions []Completion
 	X           int // X position for the completions popup
 	Y           int // Y position for the completions popup
+	MaxResults  int // Maximum number of results to render, 0 for no limit
 }
 
 type FilterCompletionsMsg struct {
@@ -111,7 +112,7 @@ func (c *completionsCmp) Init() tea.Cmd {
 }
 
 // Update implements Completions.
-func (c *completionsCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (c *completionsCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		c.wWidth, c.wHeight = msg.Width, msg.Height
@@ -192,6 +193,7 @@ func (c *completionsCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		c.width = width
 		c.height = max(min(maxCompletionsHeight, len(items)), 1) // Ensure at least 1 item height
+		c.list.SetResultsSize(msg.MaxResults)
 		return c, tea.Batch(
 			c.list.SetItems(items),
 			c.list.SetSize(c.width, c.height),

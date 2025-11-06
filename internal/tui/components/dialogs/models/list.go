@@ -1,11 +1,12 @@
 package models
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/tui/exp/list"
@@ -51,7 +52,7 @@ func (m *ModelListComponent) Init() tea.Cmd {
 	if len(m.providers) == 0 {
 		cfg := config.Get()
 		providers, err := config.Providers(cfg)
-		filteredProviders := []catwalk.Provider{}
+		filteredProviders := make([]catwalk.Provider, 0, len(providers))
 		for _, p := range providers {
 			hasAPIKeyEnv := strings.HasPrefix(p.APIKey, "$")
 			isOAuthProvider := config.IsOAuthProvider(string(p.ID))
@@ -103,7 +104,6 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 	m.modelType = modelType
 
 	var groups []list.Group[list.CompletionItem[ModelOption]]
-	// first none section
 	selectedItemID := ""
 
 	cfg := config.Get()
@@ -117,11 +117,36 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 	configuredIcon := t.S().Base.Foreground(t.Success).Render(styles.CheckIcon)
 	configured := fmt.Sprintf("%s %s", configuredIcon, t.S().Subtle.Render("Configured"))
 
-	// Create a map to track which providers we've already added
 	addedProviders := make(map[string]bool)
 
-	// First, add any configured providers that are not in the known providers list
-	// These should appear at the top of the list
+	prepareProvider := func(provider catwalk.Provider) catwalk.Provider {
+		displayProvider := provider
+		if providerConfig, providerConfigured := cfg.Providers.Get(string(provider.ID)); providerConfigured {
+			displayProvider.Name = cmp.Or(providerConfig.Name, displayProvider.Name)
+			modelIndex := make(map[string]int, len(displayProvider.Models))
+			for i, model := range displayProvider.Models {
+				modelIndex[model.ID] = i
+			}
+			for _, model := range providerConfig.Models {
+				if model.ID == "" {
+					continue
+				}
+				if idx, ok := modelIndex[model.ID]; ok {
+					if model.Name != "" {
+						displayProvider.Models[idx].Name = model.Name
+					}
+					continue
+				}
+				if model.Name == "" {
+					model.Name = model.ID
+				}
+				displayProvider.Models = append(displayProvider.Models, model)
+				modelIndex[model.ID] = len(displayProvider.Models) - 1
+			}
+		}
+		return displayProvider
+	}
+
 	knownProviders, err := config.Providers(cfg)
 	if err != nil {
 		return util.ReportError(err)
@@ -131,17 +156,14 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 			continue
 		}
 
-		// Check if this provider is not in the known providers list
 		if !slices.ContainsFunc(knownProviders, func(p catwalk.Provider) bool { return p.ID == catwalk.InferenceProvider(providerID) }) ||
 			!slices.ContainsFunc(m.providers, func(p catwalk.Provider) bool { return p.ID == catwalk.InferenceProvider(providerID) }) {
-			// Convert config provider to provider.Provider format
 			configProvider := catwalk.Provider{
 				Name:   providerConfig.Name,
 				ID:     catwalk.InferenceProvider(providerID),
 				Models: make([]catwalk.Model, len(providerConfig.Models)),
 			}
 
-			// Convert models
 			for i, model := range providerConfig.Models {
 				configProvider.Models[i] = catwalk.Model{
 					ID:                     model.ID,
@@ -153,13 +175,12 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 					ContextWindow:          model.ContextWindow,
 					DefaultMaxTokens:       model.DefaultMaxTokens,
 					CanReason:              model.CanReason,
-					HasReasoningEffort:     model.HasReasoningEffort,
+					ReasoningLevels:        model.ReasoningLevels,
 					DefaultReasoningEffort: model.DefaultReasoningEffort,
 					SupportsImages:         model.SupportsImages,
 				}
 			}
 
-			// Add this unknown provider to the list
 			name := configProvider.Name
 			if name == "" {
 				name = string(configProvider.ID)
@@ -190,19 +211,15 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 		}
 	}
 
-	// Separate providers into priority and non-priority groups
 	var priorityProviders, regularProviders []catwalk.Provider
 
-	// First, add any OAuth providers that might not be in the known providers list
 	oauthProviders := config.GetOAuthProviders(config.GlobalDataDir())
 	for _, oauthProvider := range oauthProviders {
 		if addedProviders[oauthProvider.ID] {
 			continue
 		}
-
-		// Convert to display provider and add to appropriate group
-		displayProvider := oauthProvider.ToDisplayProvider()
-		if oauthProvider.HasOAuthCredentials() {
+		displayProvider := prepareProvider(oauthProvider.ToDisplayProvider())
+		if m.isProviderPriority(displayProvider, cfg) {
 			priorityProviders = append(priorityProviders, displayProvider)
 		} else {
 			regularProviders = append(regularProviders, displayProvider)
@@ -210,33 +227,25 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 		addedProviders[oauthProvider.ID] = true
 	}
 
-	// Then add the known providers from the predefined list
 	for _, provider := range m.providers {
-		// Skip if we already added this provider as an unknown provider or OAuth provider
 		if addedProviders[string(provider.ID)] {
 			continue
 		}
 
-		// Check if this provider is configured and not disabled
-		if providerConfig, exists := cfg.Providers.Get(string(provider.ID)); exists && providerConfig.Disable {
-			continue
-		}
-
-		// Sort into priority vs regular based on authentication status
-		if m.isProviderPriority(provider, cfg) {
-			priorityProviders = append(priorityProviders, provider)
+		displayProvider := prepareProvider(provider)
+		if m.isProviderPriority(displayProvider, cfg) {
+			priorityProviders = append(priorityProviders, displayProvider)
 		} else {
-			regularProviders = append(regularProviders, provider)
+			regularProviders = append(regularProviders, displayProvider)
 		}
+		addedProviders[string(provider.ID)] = true
 	}
 
-	// Add priority providers first
 	for _, provider := range priorityProviders {
 		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID)
 		groups = append(groups, group)
 	}
 
-	// Then add regular providers
 	for _, provider := range regularProviders {
 		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID)
 		groups = append(groups, group)
@@ -244,13 +253,10 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 
 	var cmds []tea.Cmd
 
-	cmd := m.list.SetGroups(groups)
-
-	if cmd != nil {
+	if cmd := m.list.SetGroups(groups); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	cmd = m.list.SetSelected(selectedItemID)
-	if cmd != nil {
+	if cmd := m.list.SetSelected(selectedItemID); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 
@@ -266,18 +272,15 @@ func (m *ModelListComponent) SetInputPlaceholder(placeholder string) {
 	m.list.SetInputPlaceholder(placeholder)
 }
 
-// isProviderPriority checks if a provider is authenticated/configured and should be prioritized
 func (m *ModelListComponent) isProviderPriority(provider catwalk.Provider, cfg *config.Config) bool {
 	providerID := string(provider.ID)
 
-	// Check if it's an OAuth provider with active credentials
 	if config.IsOAuthProvider(providerID) {
 		if oauthProvider, ok := config.GetOAuthProvider(providerID, config.GlobalDataDir()); ok {
 			return oauthProvider.HasOAuthCredentials()
 		}
 	}
 
-	// Check if it's a regular provider with API key configured
 	if providerConfig, exists := cfg.Providers.Get(providerID); exists {
 		return !providerConfig.Disable && providerConfig.APIKey != ""
 	}
@@ -285,7 +288,6 @@ func (m *ModelListComponent) isProviderPriority(provider catwalk.Provider, cfg *
 	return false
 }
 
-// createProviderGroup creates a list group for a provider with its models
 func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg *config.Config, configured string, currentModel config.SelectedModel, selectedItemID *string) list.Group[list.CompletionItem[ModelOption]] {
 	name := provider.Name
 	if name == "" {

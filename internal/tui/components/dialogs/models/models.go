@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/bubbles/v2/spinner"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/tui/components/core"
@@ -15,7 +16,6 @@ import (
 	"github.com/charmbracelet/crush/internal/tui/exp/list"
 	"github.com/charmbracelet/crush/internal/tui/styles"
 	"github.com/charmbracelet/crush/internal/tui/util"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
 const (
@@ -98,7 +98,7 @@ func (m *modelDialogCmp) Init() tea.Cmd {
 	return tea.Batch(m.modelList.Init(), m.apiKeyInput.Init())
 }
 
-func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *modelDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.wWidth = msg.Width

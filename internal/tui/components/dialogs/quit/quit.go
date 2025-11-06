@@ -1,12 +1,12 @@
 package quit
 
 import (
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/tui/components/dialogs"
 	"github.com/charmbracelet/crush/internal/tui/styles"
 	"github.com/charmbracelet/crush/internal/tui/util"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
 const (
@@ -40,7 +40,7 @@ func (q *quitDialogCmp) Init() tea.Cmd {
 }
 
 // Update handles keyboard input for the quit dialog.
-func (q *quitDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (q *quitDialogCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		q.wWidth = msg.Width

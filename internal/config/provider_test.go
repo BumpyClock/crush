@@ -58,7 +58,7 @@ func TestProvider_loadProvidersWithIssues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to write old providers to file: %v", err)
 	}
-	providers, err := loadProviders(false, client, tmpPath)
+	providers, err := loadProviders(true, client, tmpPath)
 	require.NoError(t, err)
 	require.NotNil(t, providers)
 	require.GreaterOrEqual(t, len(providers), 1, "Should have at least OldProvider")

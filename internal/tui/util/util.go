@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 )
 
 type Cursor interface {
@@ -12,8 +12,9 @@ type Cursor interface {
 }
 
 type Model interface {
-	tea.Model
-	tea.ViewModel
+	Init() tea.Cmd
+	Update(tea.Msg) (Model, tea.Cmd)
+	View() string
 }
 
 func CmdHandler(msg tea.Msg) tea.Cmd {

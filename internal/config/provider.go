@@ -78,21 +78,21 @@ func loadProvidersFromCache(path string) ([]catwalk.Provider, error) {
 	return providers, nil
 }
 
-func UpdateProviders(pathOrUrl string) error {
+func UpdateProviders(pathOrURL string) error {
 	var providers []catwalk.Provider
-	pathOrUrl = cmp.Or(pathOrUrl, os.Getenv("CATWALK_URL"), defaultCatwalkURL)
+	pathOrURL = cmp.Or(pathOrURL, os.Getenv("CATWALK_URL"), defaultCatwalkURL)
 
 	switch {
-	case pathOrUrl == "embedded":
+	case pathOrURL == "embedded":
 		providers = embedded.GetAll()
-	case strings.HasPrefix(pathOrUrl, "http://") || strings.HasPrefix(pathOrUrl, "https://"):
+	case strings.HasPrefix(pathOrURL, "http://") || strings.HasPrefix(pathOrURL, "https://"):
 		var err error
-		providers, err = catwalk.NewWithURL(pathOrUrl).GetProviders()
+		providers, err = catwalk.NewWithURL(pathOrURL).GetProviders()
 		if err != nil {
 			return fmt.Errorf("failed to fetch providers from Catwalk: %w", err)
 		}
 	default:
-		content, err := os.ReadFile(pathOrUrl)
+		content, err := os.ReadFile(pathOrURL)
 		if err != nil {
 			return fmt.Errorf("failed to read file: %w", err)
 		}
@@ -109,7 +109,7 @@ func UpdateProviders(pathOrUrl string) error {
 		return fmt.Errorf("failed to save providers to cache: %w", err)
 	}
 
-	slog.Info("Providers updated successfully", "count", len(providers), "from", pathOrUrl, "to", cachePath)
+	slog.Info("Providers updated successfully", "count", len(providers), "from", pathOrURL, "to", cachePath)
 	return nil
 }
 
@@ -131,10 +131,10 @@ func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) 
 	catwalkGetAndSave := func() ([]catwalk.Provider, error) {
 		providers, err := client.GetProviders()
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch providers from catwalk: %w", err)
+			return nil, fmt.Errorf("failed to fetch providers from Catwalk: %w", err)
 		}
 		if len(providers) == 0 {
-			return nil, fmt.Errorf("empty providers list from catwalk")
+			return nil, fmt.Errorf("empty providers list from Catwalk")
 		}
 		if err := saveProvidersInCache(path, providers); err != nil {
 			return nil, err
@@ -162,7 +162,6 @@ func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) 
 	}
 
 	addOAuthProviders := func(providers []catwalk.Provider) []catwalk.Provider {
-		// Add OAuth providers to the list
 		dataDirectory := GlobalDataDir()
 		oauthProviders := GetOAuthProviders(dataDirectory)
 		for _, oauthProvider := range oauthProviders {
@@ -175,8 +174,10 @@ func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) 
 		return providers
 	}
 
-	var providers []catwalk.Provider
-	var err error
+	var (
+		providers []catwalk.Provider
+		err       error
+	)
 
 	switch {
 	case autoUpdateDisabled:
@@ -214,8 +215,8 @@ func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) 
 
 		providers, err = catwalkGetAndSave()
 		if err != nil {
-			catwalkUrl := fmt.Sprintf("%s/providers", cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL))
-			return nil, fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help. %w", catwalkUrl, err) //nolint:staticcheck
+			catwalkURL := fmt.Sprintf("%s/v2/providers", cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL))
+			return nil, fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help. %w", catwalkURL, err) //nolint:staticcheck
 		}
 	}
 
@@ -223,7 +224,6 @@ func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) 
 		return nil, err
 	}
 
-	// Add OAuth providers to the final list
 	providers = addOAuthProviders(providers)
 	return providers, nil
 }

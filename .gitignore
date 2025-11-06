@@ -48,10 +48,11 @@ Thumbs.db
 .serena/
 
 /crush
+/tmp/
 
 manpages/
 completions/
 !internal/tui/components/completions/
-
 build/
 node_modules/
+.prettierignore

@@ -3,13 +3,14 @@ package models
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/v2/spinner"
-	"github.com/charmbracelet/bubbles/v2/textinput"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/tui/styles"
-	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/tui/util"
 )
 
 type APIKeyInputState int
@@ -75,7 +76,7 @@ func (a *APIKeyInput) Init() tea.Cmd {
 	return a.spinner.Tick
 }
 
-func (a *APIKeyInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (a *APIKeyInput) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
 		if a.state == APIKeyInputStateVerifying {

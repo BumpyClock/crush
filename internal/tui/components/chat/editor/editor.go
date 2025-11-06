@@ -13,9 +13,10 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/v2/key"
-	"github.com/charmbracelet/bubbles/v2/textarea"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/message"
@@ -29,7 +30,6 @@ import (
 	"github.com/charmbracelet/crush/internal/tui/components/dialogs/quit"
 	"github.com/charmbracelet/crush/internal/tui/styles"
 	"github.com/charmbracelet/crush/internal/tui/util"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
 type Editor interface {
@@ -86,6 +86,7 @@ var DeleteKeyMaps = DeleteAttachmentKeyMaps{
 
 const (
 	maxAttachments = 5
+	maxFileResults = 25
 )
 
 type OpenEditorMsg struct {
@@ -171,7 +172,7 @@ func (m *editorCmp) repositionCompletions() tea.Msg {
 	return completions.RepositionCompletionsMsg{X: x, Y: y}
 }
 
-func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
@@ -211,7 +212,7 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case commands.OpenExternalEditorMsg:
-		if m.app.CoderAgent.IsSessionBusy(m.session.ID) {
+		if m.app.AgentCoordinator.IsSessionBusy(m.session.ID) {
 			return m, util.ReportWarn("Agent is working, please wait...")
 		}
 		return m, m.openEditor(m.textarea.Value())
@@ -219,7 +220,7 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea.SetValue(msg.Text)
 		m.textarea.MoveToEnd()
 	case tea.PasteMsg:
-		path := strings.ReplaceAll(string(msg), "\\ ", " ")
+		path := strings.ReplaceAll(msg.Content, "\\ ", " ")
 		// try to get an image
 		path, err := filepath.Abs(strings.TrimSpace(path))
 		if err != nil {
@@ -263,8 +264,13 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cur := m.textarea.Cursor()
 		curIdx := m.textarea.Width()*cur.Y + cur.X
 		switch {
+		// Open command palette when "/" is pressed on empty prompt
+		case msg.String() == "/" && len(strings.TrimSpace(m.textarea.Value())) == 0:
+			return m, util.CmdHandler(dialogs.OpenDialogMsg{
+				Model: commands.NewCommandDialog(m.session.ID),
+			})
 		// Completions
-		case msg.String() == "/" && !m.isCompletionsOpen &&
+		case msg.String() == "@" && !m.isCompletionsOpen &&
 			// only show if beginning of prompt, or if previous char is a space or newline:
 			(len(m.textarea.Value()) == 0 || unicode.IsSpace(rune(m.textarea.Value()[len(m.textarea.Value())-1]))):
 			m.isCompletionsOpen = true
@@ -297,7 +303,7 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if key.Matches(msg, m.keyMap.OpenEditor) {
-			if m.app.CoderAgent.IsSessionBusy(m.session.ID) {
+			if m.app.AgentCoordinator.IsSessionBusy(m.session.ID) {
 				return m, util.ReportWarn("Agent is working, please wait...")
 			}
 			return m, m.openEditor(m.textarea.Value())
@@ -336,7 +342,7 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, util.CmdHandler(completions.CloseCompletionsMsg{}))
 			} else {
 				word := m.textarea.Word()
-				if strings.HasPrefix(word, "/") {
+				if strings.HasPrefix(word, "@") {
 					// XXX: wont' work if editing in the middle of the field.
 					m.completionsStartIndex = strings.LastIndex(m.textarea.Value(), word)
 					m.currentQuery = word[1:]
@@ -415,7 +421,7 @@ func (m *editorCmp) randomizePlaceholders() {
 func (m *editorCmp) View() string {
 	t := styles.CurrentTheme()
 	// Update placeholder
-	if m.app.CoderAgent != nil && m.app.CoderAgent.IsBusy() {
+	if m.app.AgentCoordinator != nil && m.app.AgentCoordinator.IsBusy() {
 		m.textarea.Placeholder = m.workingPlaceholder
 	} else {
 		m.textarea.Placeholder = m.readyPlaceholder
@@ -500,6 +506,7 @@ func (m *editorCmp) startCompletions() tea.Msg {
 		Completions: completionItems,
 		X:           x,
 		Y:           y,
+		MaxResults:  maxFileResults,
 	}
 }
 

@@ -6,12 +6,12 @@ import "github.com/charmbracelet/catwalk/pkg/catwalk"
 // Costs are zeroed elsewhere for subscription contexts.
 var defaultOAuthModels = map[string][]catwalk.Model{
 	"claudesub": {
-		{ID: "claude-opus-4-1-20250805", Name: "Claude Opus 4.1", ContextWindow: 200000, DefaultMaxTokens: 32000, CanReason: true, HasReasoningEffort: false, SupportsImages: true},
-		{ID: "claude-opus-4-20250514", Name: "Claude Opus 4", ContextWindow: 200000, DefaultMaxTokens: 32000, CanReason: true, HasReasoningEffort: false, SupportsImages: true},
-		{ID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, HasReasoningEffort: true, DefaultReasoningEffort: "medium", SupportsImages: true},
-		{ID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, HasReasoningEffort: true, DefaultReasoningEffort: "medium", SupportsImages: true},
-		{ID: "claude-3-5-sonnet-20241022", Name: "Claude 3.5 Sonnet (New)", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, HasReasoningEffort: true, DefaultReasoningEffort: "medium", SupportsImages: true},
-		{ID: "claude-3-5-sonnet-20240620", Name: "Claude 3.5 Sonnet (Old)", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, HasReasoningEffort: true, DefaultReasoningEffort: "medium", SupportsImages: true},
+		{ID: "claude-opus-4-1-20250805", Name: "Claude Opus 4.1", ContextWindow: 200000, DefaultMaxTokens: 32000, CanReason: true, SupportsImages: true},
+		{ID: "claude-opus-4-20250514", Name: "Claude Opus 4", ContextWindow: 200000, DefaultMaxTokens: 32000, CanReason: true, SupportsImages: true},
+		{ID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, ReasoningLevels: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium", SupportsImages: true},
+		{ID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, ReasoningLevels: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium", SupportsImages: true},
+		{ID: "claude-3-5-sonnet-20241022", Name: "Claude 3.5 Sonnet (New)", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, ReasoningLevels: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium", SupportsImages: true},
+		{ID: "claude-3-5-sonnet-20240620", Name: "Claude 3.5 Sonnet (Old)", ContextWindow: 200000, DefaultMaxTokens: 8192, CanReason: true, ReasoningLevels: []string{"low", "medium", "high"}, DefaultReasoningEffort: "medium", SupportsImages: true},
 		{ID: "claude-3-5-haiku-20241022", Name: "Claude 3.5 Haiku", ContextWindow: 200000, DefaultMaxTokens: 5000, CanReason: false, SupportsImages: true},
 	},
 	"github-copilot": {

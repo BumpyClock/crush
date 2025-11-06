@@ -218,13 +218,7 @@ func ConvertDefinitionToAgent(def AgentDefinition, defaultModelType SelectedMode
 		ID:          def.Name,
 		Name:        def.Name,
 		Description: def.Description,
-		Color:       def.Color,
 		Model:       modelType,
-	}
-
-	// If a specific model is provided (not large-task or small-task), store it
-	if def.Model != "" && def.Model != "large-task" && def.Model != "small-task" && def.Model != "large" && def.Model != "small" {
-		agent.SpecificModel = def.Model
 	}
 
 	// If tools are specified, set AllowedTools
@@ -241,12 +235,6 @@ func ConvertDefinitionToAgent(def AgentDefinition, defaultModelType SelectedMode
 		}
 	}
 	// If MCPServers is empty/nil, all MCP servers are allowed (default behavior)
-
-	// Handle LSP servers
-	if len(def.LSPServers) > 0 {
-		agent.AllowedLSP = def.LSPServers
-	}
-	// If LSPServers is empty/nil, all LSP servers are allowed (default behavior)
 
 	return agent
 }
