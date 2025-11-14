@@ -144,7 +144,7 @@ func (p *chatPage) Init() tea.Cmd {
 		p.isOnboarding = true
 		p.splashFullScreen = true
 	} else if b, _ := config.ProjectNeedsInitialization(); b {
-		// Project needs CRUSH.md initialization
+		// Project needs context initialization
 		p.splash.SetProjectInit(true)
 		p.isProjectInit = true
 		p.splashFullScreen = true
@@ -946,7 +946,8 @@ func (p *chatPage) Help() help.KeyMap {
 			key.WithKeys("ctrl+m", "ctrl+l"),
 			key.WithHelp("ctrl+l", "models"),
 		)
-		if p.keyboardEnhancements.SupportsKeyDisambiguation() {
+		if p.keyboardEnhancements.Flags > 0 {
+			// non-zero flags mean we have at least key disambiguation
 			modelsBinding.SetHelp("ctrl+m", "models")
 		}
 		helpBinding := key.NewBinding(
