@@ -63,6 +63,10 @@ func (m *ModelListComponent) Init() tea.Cmd {
 		for _, p := range providers {
 			hasAPIKeyEnv := strings.HasPrefix(p.APIKey, "$")
 			isOAuthProvider := config.IsOAuthProvider(string(p.ID))
+			// Skip OAuth providers in test environments (when disable_provider_auto_update is true)
+			if isOAuthProvider && cfg.Options.DisableProviderAutoUpdate {
+				continue
+			}
 			// Include providers with API key env vars or OAuth providers
 			if (hasAPIKeyEnv && p.ID != catwalk.InferenceProviderAzure) || isOAuthProvider {
 				filteredProviders = append(filteredProviders, p)
@@ -227,19 +231,33 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 	}
 
 	var priorityProviders, regularProviders []catwalk.Provider
+	// Track which providers should contribute to itemsByKey for recent model validation
+	validProviderIDs := make(map[string]bool)
 
-	oauthProviders := config.GetOAuthProviders(config.GlobalDataDir())
-	for _, oauthProvider := range oauthProviders {
-		if addedProviders[oauthProvider.ID] {
-			continue
+	// Add configured providers to valid set
+	for providerID := range cfg.Providers.Seq2() {
+		validProviderIDs[providerID] = true
+	}
+
+	// Only load OAuth providers if provider auto-update is enabled
+	// This respects test environments where disable_provider_auto_update is true
+	if !cfg.Options.DisableProviderAutoUpdate {
+		oauthProviders := config.GetOAuthProviders(config.GlobalDataDir())
+		for _, oauthProvider := range oauthProviders {
+			if addedProviders[oauthProvider.ID] {
+				continue
+			}
+			displayProvider := prepareProvider(oauthProvider.ToDisplayProvider())
+			isPriority := m.isProviderPriority(displayProvider, cfg)
+			if isPriority {
+				priorityProviders = append(priorityProviders, displayProvider)
+				validProviderIDs[oauthProvider.ID] = true
+			} else {
+				regularProviders = append(regularProviders, displayProvider)
+				// OAuth providers without credentials are NOT valid for recent model validation
+			}
+			addedProviders[oauthProvider.ID] = true
 		}
-		displayProvider := prepareProvider(oauthProvider.ToDisplayProvider())
-		if m.isProviderPriority(displayProvider, cfg) {
-			priorityProviders = append(priorityProviders, displayProvider)
-		} else {
-			regularProviders = append(regularProviders, displayProvider)
-		}
-		addedProviders[oauthProvider.ID] = true
 	}
 
 	for _, provider := range m.providers {
@@ -248,21 +266,27 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 		}
 
 		displayProvider := prepareProvider(provider)
-		if m.isProviderPriority(displayProvider, cfg) {
+		isPriority := m.isProviderPriority(displayProvider, cfg)
+		if isPriority {
 			priorityProviders = append(priorityProviders, displayProvider)
+			validProviderIDs[string(provider.ID)] = true
 		} else {
 			regularProviders = append(regularProviders, displayProvider)
+			// Non-OAuth providers from m.providers are considered valid (they have API key env vars)
+			if !config.IsOAuthProvider(string(provider.ID)) {
+				validProviderIDs[string(provider.ID)] = true
+			}
 		}
 		addedProviders[string(provider.ID)] = true
 	}
 
 	for _, provider := range priorityProviders {
-		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID, itemsByKey)
+		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID, itemsByKey, validProviderIDs)
 		groups = append(groups, group)
 	}
 
 	for _, provider := range regularProviders {
-		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID, itemsByKey)
+		group := m.createProviderGroup(provider, cfg, configured, currentModel, &selectedItemID, itemsByKey, validProviderIDs)
 		groups = append(groups, group)
 	}
 
@@ -345,7 +369,7 @@ func (m *ModelListComponent) isProviderPriority(provider catwalk.Provider, cfg *
 	return false
 }
 
-func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg *config.Config, configured string, currentModel config.SelectedModel, selectedItemID *string, itemsByKey map[string]list.CompletionItem[ModelOption]) list.Group[list.CompletionItem[ModelOption]] {
+func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg *config.Config, configured string, currentModel config.SelectedModel, selectedItemID *string, itemsByKey map[string]list.CompletionItem[ModelOption], validProviderIDs map[string]bool) list.Group[list.CompletionItem[ModelOption]] {
 	name := provider.Name
 	if name == "" {
 		name = string(provider.ID)
@@ -355,6 +379,10 @@ func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg 
 	if _, ok := cfg.Providers.Get(string(provider.ID)); ok {
 		section.SetInfo(configured)
 	}
+
+	// Check if this provider should contribute to itemsByKey for recent model validation
+	providerID := string(provider.ID)
+	shouldAddToItemsByKey := validProviderIDs[providerID]
 
 	group := list.Group[list.CompletionItem[ModelOption]]{
 		Section: section,
@@ -368,7 +396,11 @@ func (m *ModelListComponent) createProviderGroup(provider catwalk.Provider, cfg 
 		},
 			list.WithCompletionID(key),
 		)
-		itemsByKey[key] = item
+		// Only add to itemsByKey if provider is in the valid set
+		// This ensures recent models are only validated against actually usable providers
+		if shouldAddToItemsByKey {
+			itemsByKey[key] = item
+		}
 		group.Items = append(group.Items, item)
 		if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
 			*selectedItemID = item.ID()
