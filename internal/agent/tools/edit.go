@@ -71,19 +71,12 @@ func NewEditTool(lspClients *csync.Map[string, *lsp.Client], permissions permiss
 
 			if params.OldString == "" {
 				response, err = createNewFile(editCtx, params.FilePath, params.NewString, call)
-				if err != nil {
-					return response, err
-				}
-			}
-
-			if params.NewString == "" {
+			} else if params.NewString == "" {
 				response, err = deleteContent(editCtx, params.FilePath, params.OldString, params.ReplaceAll, call)
-				if err != nil {
-					return response, err
-				}
+			} else {
+				response, err = replaceContent(editCtx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll, call)
 			}
 
-			response, err = replaceContent(editCtx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll, call)
 			if err != nil {
 				return response, err
 			}
@@ -163,7 +156,7 @@ func createNewFile(edit editContext, filePath, content string, call fantasy.Tool
 	_, err = edit.files.CreateVersion(edit.ctx, sessionID, filePath, content)
 	if err != nil {
 		// Log error but don't fail the operation
-		slog.Debug("Error creating file history version", "error", err)
+		slog.Error("Error creating file history version", "error", err)
 	}
 
 	recordFileWrite(filePath)
@@ -290,13 +283,13 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 		// User Manually changed the content store an intermediate version
 		_, err = edit.files.CreateVersion(edit.ctx, sessionID, filePath, oldContent)
 		if err != nil {
-			slog.Debug("Error creating file history version", "error", err)
+			slog.Error("Error creating file history version", "error", err)
 		}
 	}
 	// Store the new version
 	_, err = edit.files.CreateVersion(edit.ctx, sessionID, filePath, "")
 	if err != nil {
-		slog.Debug("Error creating file history version", "error", err)
+		slog.Error("Error creating file history version", "error", err)
 	}
 
 	recordFileWrite(filePath)
@@ -431,7 +424,7 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 	// Store the new version
 	_, err = edit.files.CreateVersion(edit.ctx, sessionID, filePath, newContent)
 	if err != nil {
-		slog.Debug("Error creating file history version", "error", err)
+		slog.Error("Error creating file history version", "error", err)
 	}
 
 	recordFileWrite(filePath)

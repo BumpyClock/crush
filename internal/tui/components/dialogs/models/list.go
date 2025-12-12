@@ -247,15 +247,13 @@ func (m *ModelListComponent) SetModelType(modelType int) tea.Cmd {
 			if addedProviders[oauthProvider.ID] {
 				continue
 			}
-			displayProvider := prepareProvider(oauthProvider.ToDisplayProvider())
-			isPriority := m.isProviderPriority(displayProvider, cfg)
-			if isPriority {
-				priorityProviders = append(priorityProviders, displayProvider)
-				validProviderIDs[oauthProvider.ID] = true
-			} else {
-				regularProviders = append(regularProviders, displayProvider)
-				// OAuth providers without credentials are NOT valid for recent model validation
+			// Only add OAuth providers that have valid credentials
+			if !oauthProvider.HasOAuthCredentials() {
+				continue
 			}
+			displayProvider := prepareProvider(oauthProvider.ToDisplayProvider())
+			priorityProviders = append(priorityProviders, displayProvider)
+			validProviderIDs[oauthProvider.ID] = true
 			addedProviders[oauthProvider.ID] = true
 		}
 	}

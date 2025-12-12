@@ -11,6 +11,7 @@ import (
 	"cmp"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,6 +65,7 @@ type SessionAgent interface {
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
 	QueuedPrompts(sessionID string) int
+	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string, fantasy.ProviderOptions) error
 	Model() Model
@@ -80,6 +82,7 @@ type sessionAgent struct {
 	smallModel           Model
 	systemPromptPrefix   string
 	systemPrompt         string
+	isSubAgent           bool
 	tools                []fantasy.AgentTool
 	sessions             session.Service
 	messages             message.Service
@@ -95,6 +98,7 @@ type SessionAgentOptions struct {
 	SmallModel           Model
 	SystemPromptPrefix   string
 	SystemPrompt         string
+	IsSubAgent           bool
 	DisableAutoSummarize bool
 	IsYolo               bool
 	Sessions             session.Service
@@ -110,6 +114,7 @@ func NewSessionAgent(
 		smallModel:           opts.SmallModel,
 		systemPromptPrefix:   opts.SystemPromptPrefix,
 		systemPrompt:         opts.SystemPrompt,
+		isSubAgent:           opts.IsSubAgent,
 		sessions:             opts.Sessions,
 		messages:             opts.Messages,
 		disableAutoSummarize: opts.DisableAutoSummarize,
@@ -204,10 +209,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		PresencePenalty:  call.PresencePenalty,
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
-		// Before each step create a new assistant message.
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
 			prepared.Messages = options.Messages
-			// Reset all cached items.
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
@@ -221,6 +224,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				}
 				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
 			}
+
+			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages)
 
 			lastSystemRoleInx := 0
 			systemMessageUpdated := false
@@ -238,8 +243,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				}
 			}
 
-			if a.systemPromptPrefix != "" {
-				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(a.systemPromptPrefix)}, prepared.Messages...)
+			if promptPrefix := a.promptPrefix(); promptPrefix != "" {
+				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
 			}
 
 			var assistantMsg message.Message
@@ -253,6 +258,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				return callContext, prepared, err
 			}
 			callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
+			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, a.largeModel.CatwalkCfg.SupportsImages)
+			callContext = context.WithValue(callContext, tools.ModelNameContextKey, a.largeModel.CatwalkCfg.Name)
 			currentAssistant = &assistantMsg
 			return callContext, prepared, err
 		},
@@ -273,7 +280,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			}
 			if googleData, ok := reasoning.ProviderMetadata[google.Name]; ok {
 				if reasoning, ok := googleData.(*google.ReasoningMetadata); ok {
-					currentAssistant.AppendReasoningSignature(reasoning.Signature)
+					currentAssistant.AppendThoughtSignature(reasoning.Signature, reasoning.ToolID)
 				}
 			}
 			if openaiData, ok := reasoning.ProviderMetadata[openai.Name]; ok {
@@ -320,40 +327,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			return a.messages.Update(genCtx, *currentAssistant)
 		},
 		OnToolResult: func(result fantasy.ToolResultContent) error {
-			var resultContent string
-			isError := false
-			switch result.Result.GetType() {
-			case fantasy.ToolResultContentTypeText:
-				r, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Result)
-				if ok {
-					resultContent = r.Text
-				}
-			case fantasy.ToolResultContentTypeError:
-				r, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](result.Result)
-				if ok {
-					isError = true
-					resultContent = r.Error.Error()
-				}
-			case fantasy.ToolResultContentTypeMedia:
-				// TODO: handle this message type
-			}
-			toolResult := message.ToolResult{
-				ToolCallID: result.ToolCallID,
-				Name:       result.ToolName,
-				Content:    resultContent,
-				IsError:    isError,
-				Metadata:   result.ClientMetadata,
-			}
+			toolResult := a.convertToToolResult(result)
 			_, createMsgErr := a.messages.Create(genCtx, currentAssistant.SessionID, message.CreateMessageParams{
 				Role: message.Tool,
 				Parts: []message.ContentPart{
 					toolResult,
 				},
 			})
-			if createMsgErr != nil {
-				return createMsgErr
-			}
-			return nil
+			return createMsgErr
 		},
 		OnStepFinish: func(stepResult fantasy.StepResult) error {
 			finishReason := message.FinishReasonUnknown
@@ -366,9 +347,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				finishReason = message.FinishReasonToolUse
 			}
 			currentAssistant.AddFinish(finishReason, "", "")
-			a.updateSessionUsage(a.largeModel, &currentSession, stepResult.Usage, a.openrouterCost(stepResult.ProviderMetadata))
 			sessionLock.Lock()
-			_, sessionErr := a.sessions.Save(genCtx, currentSession)
+			updatedSession, getSessionErr := a.sessions.Get(genCtx, call.SessionID)
+			if getSessionErr != nil {
+				sessionLock.Unlock()
+				return getSessionErr
+			}
+			a.updateSessionUsage(a.largeModel, &updatedSession, stepResult.Usage, a.openrouterCost(stepResult.ProviderMetadata))
+			_, sessionErr := a.sessions.Save(genCtx, updatedSession)
 			sessionLock.Unlock()
 			if sessionErr != nil {
 				return sessionErr
@@ -554,8 +540,18 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return err
 	}
 
+	summaryPromptText := "Provide a detailed summary of our conversation above."
+	if len(currentSession.Todos) > 0 {
+		summaryPromptText += "\n\n## Current Todo List\n\n"
+		for _, t := range currentSession.Todos {
+			summaryPromptText += fmt.Sprintf("- [%s] %s\n", t.Status, t.Content)
+		}
+		summaryPromptText += "\nInclude these tasks and their statuses in your summary. "
+		summaryPromptText += "Instruct the resuming assistant to use the `todos` tool to continue tracking progress on these tasks."
+	}
+
 	resp, err := agent.Stream(genCtx, fantasy.AgentStreamCall{
-		Prompt:          "Provide a detailed summary of our conversation above.",
+		Prompt:          summaryPromptText,
 		Messages:        aiMsgs,
 		ProviderOptions: opts,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
@@ -656,6 +652,15 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 
 func (a *sessionAgent) preparePrompt(msgs []message.Message, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
 	var history []fantasy.Message
+	if !a.isSubAgent {
+		history = append(history, fantasy.NewUserMessage(
+			fmt.Sprintf("<system_reminder>%s</system_reminder>",
+				`This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware.
+If you are working on tasks that would benefit from a todo list please use the "todos" tool to create one.
+If not, please feel free to ignore. Again do not mention this message to the user.`,
+			),
+		))
+	}
 	for _, m := range msgs {
 		if len(m.Parts) == 0 {
 			continue
@@ -789,6 +794,10 @@ func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session,
 		modelConfig.CostPer1MIn/1e6*float64(usage.InputTokens) +
 		modelConfig.CostPer1MOut/1e6*float64(usage.OutputTokens)
 
+	if a.isClaudeCode() {
+		cost = 0
+	}
+
 	a.eventTokensUsed(session.ID, model, usage, cost)
 
 	if overrideCost != nil {
@@ -870,6 +879,18 @@ func (a *sessionAgent) QueuedPrompts(sessionID string) int {
 	return len(l)
 }
 
+func (a *sessionAgent) QueuedPromptsList(sessionID string) []string {
+	l, ok := a.messageQueue.Get(sessionID)
+	if !ok {
+		return nil
+	}
+	prompts := make([]string, len(l))
+	for i, call := range l {
+		prompts[i] = call.Prompt
+	}
+	return prompts
+}
+
 func (a *sessionAgent) SetModels(large Model, small Model) {
 	a.largeModel = large
 	a.smallModel = small
@@ -881,4 +902,139 @@ func (a *sessionAgent) SetTools(tools []fantasy.AgentTool) {
 
 func (a *sessionAgent) Model() Model {
 	return a.largeModel
+}
+
+func (a *sessionAgent) promptPrefix() string {
+	if a.isClaudeCode() {
+		return "You are Claude Code, Anthropic's official CLI for Claude."
+	}
+	return a.systemPromptPrefix
+}
+
+func (a *sessionAgent) isClaudeCode() bool {
+	cfg := config.Get()
+	pc, ok := cfg.Providers.Get(a.largeModel.ModelCfg.Provider)
+	return ok && pc.ID == string(catwalk.InferenceProviderAnthropic) && pc.OAuthToken != nil
+}
+
+// convertToToolResult converts a fantasy tool result to a message tool result.
+func (a *sessionAgent) convertToToolResult(result fantasy.ToolResultContent) message.ToolResult {
+	baseResult := message.ToolResult{
+		ToolCallID: result.ToolCallID,
+		Name:       result.ToolName,
+		Metadata:   result.ClientMetadata,
+	}
+
+	switch result.Result.GetType() {
+	case fantasy.ToolResultContentTypeText:
+		if r, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Result); ok {
+			baseResult.Content = r.Text
+		}
+	case fantasy.ToolResultContentTypeError:
+		if r, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](result.Result); ok {
+			baseResult.Content = r.Error.Error()
+			baseResult.IsError = true
+		}
+	case fantasy.ToolResultContentTypeMedia:
+		if r, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentMedia](result.Result); ok {
+			content := r.Text
+			if content == "" {
+				content = fmt.Sprintf("Loaded %s content", r.MediaType)
+			}
+			baseResult.Content = content
+			baseResult.Data = r.Data
+			baseResult.MIMEType = r.MediaType
+		}
+	}
+
+	return baseResult
+}
+
+// workaroundProviderMediaLimitations converts media content in tool results to
+// user messages for providers that don't natively support images in tool results.
+//
+// Problem: OpenAI, Google, OpenRouter, and other OpenAI-compatible providers
+// don't support sending images/media in tool result messages - they only accept
+// text in tool results. However, they DO support images in user messages.
+//
+// If we send media in tool results to these providers, the API returns an error.
+//
+// Solution: For these providers, we:
+//  1. Replace the media in the tool result with a text placeholder
+//  2. Inject a user message immediately after with the image as a file attachment
+//  3. This maintains the tool execution flow while working around API limitations
+//
+// Anthropic and Bedrock support images natively in tool results, so we skip
+// this workaround for them.
+//
+// Example transformation:
+//
+//	BEFORE: [tool result: image data]
+//	AFTER:  [tool result: "Image loaded - see attached"], [user: image attachment]
+func (a *sessionAgent) workaroundProviderMediaLimitations(messages []fantasy.Message) []fantasy.Message {
+	providerSupportsMedia := a.largeModel.ModelCfg.Provider == string(catwalk.InferenceProviderAnthropic) ||
+		a.largeModel.ModelCfg.Provider == string(catwalk.InferenceProviderBedrock)
+
+	if providerSupportsMedia {
+		return messages
+	}
+
+	convertedMessages := make([]fantasy.Message, 0, len(messages))
+
+	for _, msg := range messages {
+		if msg.Role != fantasy.MessageRoleTool {
+			convertedMessages = append(convertedMessages, msg)
+			continue
+		}
+
+		textParts := make([]fantasy.MessagePart, 0, len(msg.Content))
+		var mediaFiles []fantasy.FilePart
+
+		for _, part := range msg.Content {
+			toolResult, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
+			if !ok {
+				textParts = append(textParts, part)
+				continue
+			}
+
+			if media, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentMedia](toolResult.Output); ok {
+				decoded, err := base64.StdEncoding.DecodeString(media.Data)
+				if err != nil {
+					slog.Warn("failed to decode media data", "error", err)
+					textParts = append(textParts, part)
+					continue
+				}
+
+				mediaFiles = append(mediaFiles, fantasy.FilePart{
+					Data:      decoded,
+					MediaType: media.MediaType,
+					Filename:  fmt.Sprintf("tool-result-%s", toolResult.ToolCallID),
+				})
+
+				textParts = append(textParts, fantasy.ToolResultPart{
+					ToolCallID: toolResult.ToolCallID,
+					Output: fantasy.ToolResultOutputContentText{
+						Text: "[Image/media content loaded - see attached file]",
+					},
+					ProviderOptions: toolResult.ProviderOptions,
+				})
+			} else {
+				textParts = append(textParts, part)
+			}
+		}
+
+		convertedMessages = append(convertedMessages, fantasy.Message{
+			Role:    fantasy.MessageRoleTool,
+			Content: textParts,
+		})
+
+		if len(mediaFiles) > 0 {
+			convertedMessages = append(convertedMessages, fantasy.NewUserMessage(
+				"Here is the media content from the tool result:",
+				mediaFiles...,
+			))
+		}
+	}
+
+	return convertedMessages
 }

@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -42,6 +41,7 @@ type Editor interface {
 	SetSession(session session.Session) tea.Cmd
 	IsCompletionsOpen() bool
 	HasAttachments() bool
+	IsEmpty() bool
 	Cursor() *tea.Cursor
 }
 
@@ -55,7 +55,7 @@ type editorCmp struct {
 	x, y               int
 	app                *app.App
 	session            session.Session
-	textarea           *textarea.Model
+	textarea           textarea.Model
 	attachments        []message.Attachment
 	deleteMode         bool
 	readyPlaceholder   string
@@ -112,11 +112,8 @@ func (m *editorCmp) openEditor(value string) tea.Cmd {
 	if _, err := tmpfile.WriteString(value); err != nil {
 		return util.ReportError(err)
 	}
-	c := exec.CommandContext(context.TODO(), editor, tmpfile.Name())
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	cmdStr := editor + " " + tmpfile.Name()
+	return util.ExecShell(context.TODO(), cmdStr, func(err error) tea.Msg {
 		if err != nil {
 			return util.ReportError(err)
 		}
@@ -265,7 +262,7 @@ func (m *editorCmp) Update(msg tea.Msg) (util.Model, tea.Cmd) {
 		curIdx := m.textarea.Width()*cur.Y + cur.X
 		switch {
 		// Open command palette when "/" is pressed on empty prompt
-		case msg.String() == "/" && len(strings.TrimSpace(m.textarea.Value())) == 0:
+		case msg.String() == "/" && m.IsEmpty():
 			return m, util.CmdHandler(dialogs.OpenDialogMsg{
 				Model: commands.NewCommandDialog(m.session.ID),
 			})
@@ -546,10 +543,17 @@ func (c *editorCmp) HasAttachments() bool {
 	return len(c.attachments) > 0
 }
 
+func (c *editorCmp) IsEmpty() bool {
+	return strings.TrimSpace(c.textarea.Value()) == ""
+}
+
 func normalPromptFunc(info textarea.PromptInfo) string {
 	t := styles.CurrentTheme()
 	if info.LineNumber == 0 {
-		return "  > "
+		if info.Focused {
+			return "  > "
+		}
+		return "::: "
 	}
 	if info.Focused {
 		return t.S().Base.Foreground(t.GreenDark).Render("::: ")

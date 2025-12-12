@@ -13,7 +13,7 @@
             "assisted-by"
           ],
           "description": "Style of attribution trailer to add to commits",
-          "default": "co-authored-by"
+          "default": "assisted-by"
         },
         "co_authored_by": {
           "type": "boolean",
@@ -229,6 +229,16 @@
           "description": "Whether this MCP server is disabled",
           "default": false
         },
+        "disabled_tools": {
+          "items": {
+            "type": "string",
+            "examples": [
+              "get-library-doc"
+            ]
+          },
+          "type": "array",
+          "description": "List of tools from this MCP server to disable"
+        },
         "timeout": {
           "type": "integer",
           "description": "Timeout in seconds for MCP server connections",
@@ -386,10 +396,14 @@
         },
         "disabled_tools": {
           "items": {
-            "type": "string"
+            "type": "string",
+            "examples": [
+              "bash",
+              "sourcegraph"
+            ]
           },
           "type": "array",
-          "description": "Tools to disable"
+          "description": "List of built-in tools to disable and hide from the agent"
         },
         "disable_provider_auto_update": {
           "type": "boolean",
@@ -418,10 +432,7 @@
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "disabled_tools"
-      ]
+      "type": "object"
     },
     "Permissions": {
       "properties": {
@@ -468,6 +479,7 @@
           "type": "string",
           "enum": [
             "openai",
+            "openai-compat",
             "anthropic",
             "gemini",
             "azure",
@@ -482,6 +494,10 @@
           "examples": [
             "$OPENAI_API_KEY"
           ]
+        },
+        "oauth": {
+          "$ref": "#/$defs/Token",
+          "description": "OAuth2 token for authentication with the provider"
         },
         "disable": {
           "type": "boolean",
@@ -550,7 +566,6 @@
         "max_tokens": {
           "type": "integer",
           "maximum": 200000,
-          "minimum": 1,
           "description": "Maximum number of tokens for model responses",
           "examples": [
             4096
@@ -622,6 +637,30 @@
       "type": "object",
       "required": [
         "completions"
+      ]
+    },
+    "Token": {
+      "properties": {
+        "access_token": {
+          "type": "string"
+        },
+        "refresh_token": {
+          "type": "string"
+        },
+        "expires_in": {
+          "type": "integer"
+        },
+        "expires_at": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "access_token",
+        "refresh_token",
+        "expires_in",
+        "expires_at"
       ]
     },
     "ToolLs": {

@@ -2,7 +2,9 @@ package config
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/catwalk/pkg/embedded"
@@ -18,7 +19,7 @@ import (
 )
 
 type ProviderClient interface {
-	GetProviders() ([]catwalk.Provider, error)
+	GetProviders(context.Context, string) ([]catwalk.Provider, error)
 }
 
 var (
@@ -54,7 +55,7 @@ func saveProvidersInCache(path string, providers []catwalk.Provider) error {
 		return fmt.Errorf("failed to create directory for provider cache: %w", err)
 	}
 
-	data, err := json.MarshalIndent(providers, "", "  ")
+	data, err := json.Marshal(providers)
 	if err != nil {
 		return fmt.Errorf("failed to marshal provider data: %w", err)
 	}
@@ -65,17 +66,18 @@ func saveProvidersInCache(path string, providers []catwalk.Provider) error {
 	return nil
 }
 
-func loadProvidersFromCache(path string) ([]catwalk.Provider, error) {
+func loadProvidersFromCache(path string) ([]catwalk.Provider, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read provider cache file: %w", err)
+		return nil, "", fmt.Errorf("failed to read provider cache file: %w", err)
 	}
 
 	var providers []catwalk.Provider
 	if err := json.Unmarshal(data, &providers); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal provider data from cache: %w", err)
+		return nil, "", fmt.Errorf("failed to unmarshal provider data from cache: %w", err)
 	}
-	return providers, nil
+
+	return providers, catwalk.Etag(data), nil
 }
 
 func UpdateProviders(pathOrURL string) error {
@@ -87,7 +89,7 @@ func UpdateProviders(pathOrURL string) error {
 		providers = embedded.GetAll()
 	case strings.HasPrefix(pathOrURL, "http://") || strings.HasPrefix(pathOrURL, "https://"):
 		var err error
-		providers, err = catwalk.NewWithURL(pathOrURL).GetProviders()
+		providers, err = catwalk.NewWithURL(pathOrURL).GetProviders(context.Background(), "")
 		if err != nil {
 			return fmt.Errorf("failed to fetch providers from Catwalk: %w", err)
 		}
@@ -113,125 +115,77 @@ func UpdateProviders(pathOrURL string) error {
 	return nil
 }
 
+// addOAuthProviders appends OAuth providers (Claude Max, GitHub Copilot) to the provider list.
+func addOAuthProviders(providers []catwalk.Provider) []catwalk.Provider {
+	dataDirectory := GlobalDataDir()
+	oauthProviders := GetOAuthProviders(dataDirectory)
+	for _, oauthProvider := range oauthProviders {
+		displayProvider := oauthProvider.ToDisplayProvider()
+		providers = append(providers, displayProvider)
+	}
+	if len(oauthProviders) > 0 {
+		slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
+	}
+	return providers
+}
+
+// Providers returns the list of providers, taking into account cached results
+// and whether or not auto update is enabled.
+//
+// It will:
+// 1. if auto update is disabled, it'll return the embedded providers at the
+// time of release.
+// 2. load the cached providers
+// 3. try to get the fresh list of providers, and return either this new list,
+// the cached list, or the embedded list if all others fail.
 func Providers(cfg *Config) ([]catwalk.Provider, error) {
 	providerOnce.Do(func() {
 		catwalkURL := cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL)
 		client := catwalk.NewWithURL(catwalkURL)
 		path := providerCacheFileData()
 
-		autoUpdateDisabled := cfg.Options.DisableProviderAutoUpdate
-		providerList, providerErr = loadProviders(autoUpdateDisabled, client, path)
+		if cfg.Options.DisableProviderAutoUpdate {
+			slog.Info("Using embedded Catwalk providers")
+			providerList = embedded.GetAll()
+			providerErr = nil
+			return
+		}
+
+		cached, etag, cachedErr := loadProvidersFromCache(path)
+		if len(cached) == 0 || cachedErr != nil {
+			// if cached file is empty, default to embedded providers
+			cached = embedded.GetAll()
+		}
+
+		providerList, providerErr = loadProviders(client, etag, path)
+		if errors.Is(providerErr, catwalk.ErrNotModified) {
+			slog.Info("Catwalk providers not modified")
+			providerList, providerErr = cached, nil
+		}
+
+		// Add OAuth providers (Claude Max, GitHub Copilot) if available.
+		if providerErr == nil {
+			providerList = addOAuthProviders(providerList)
+		}
 	})
-	return providerList, providerErr
+	if providerErr != nil {
+		catwalkURL := fmt.Sprintf("%s/v2/providers", cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL))
+		return nil, fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help.\n\nCause: %w", catwalkURL, providerErr) //nolint:staticcheck
+	}
+	return providerList, nil
 }
 
-func loadProviders(autoUpdateDisabled bool, client ProviderClient, path string) ([]catwalk.Provider, error) {
-	cacheIsStale, cacheExists := isCacheStale(path)
-
-	catwalkGetAndSave := func() ([]catwalk.Provider, error) {
-		providers, err := client.GetProviders()
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch providers from Catwalk: %w", err)
-		}
-		if len(providers) == 0 {
-			return nil, fmt.Errorf("empty providers list from Catwalk")
-		}
-		if err := saveProvidersInCache(path, providers); err != nil {
-			return nil, err
-		}
-		return providers, nil
-	}
-
-	backgroundCacheUpdate := func() {
-		go func() {
-			slog.Info("Updating providers cache in background", "path", path)
-
-			providers, err := client.GetProviders()
-			if err != nil {
-				slog.Error("Failed to fetch providers in background from Catwalk", "error", err)
-				return
-			}
-			if len(providers) == 0 {
-				slog.Error("Empty providers list from Catwalk")
-				return
-			}
-			if err := saveProvidersInCache(path, providers); err != nil {
-				slog.Error("Failed to update providers.json in background", "error", err)
-			}
-		}()
-	}
-
-	addOAuthProviders := func(providers []catwalk.Provider) []catwalk.Provider {
-		dataDirectory := GlobalDataDir()
-		oauthProviders := GetOAuthProviders(dataDirectory)
-		for _, oauthProvider := range oauthProviders {
-			displayProvider := oauthProvider.ToDisplayProvider()
-			providers = append(providers, displayProvider)
-		}
-		if len(oauthProviders) > 0 {
-			slog.Info("Added OAuth providers to provider list", "count", len(oauthProviders))
-		}
-		return providers
-	}
-
-	var (
-		providers []catwalk.Provider
-		err       error
-	)
-
-	switch {
-	case autoUpdateDisabled:
-		slog.Warn("Providers auto-update is disabled")
-
-		if cacheExists {
-			slog.Warn("Using locally cached providers")
-			providers, err = loadProvidersFromCache(path)
-		} else {
-			slog.Warn("Saving embedded providers to cache")
-			providers = embedded.GetAll()
-			if saveErr := saveProvidersInCache(path, providers); saveErr != nil {
-				return nil, saveErr
-			}
-		}
-
-	case cacheExists && !cacheIsStale:
-		slog.Info("Recent providers cache is available.", "path", path)
-
-		providers, err = loadProvidersFromCache(path)
-		if err != nil {
-			return nil, err
-		}
-		if len(providers) == 0 {
-			providers, err = catwalkGetAndSave()
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			backgroundCacheUpdate()
-		}
-
-	default:
-		slog.Info("Cache is not available or is stale. Fetching providers from Catwalk.", "path", path)
-
-		providers, err = catwalkGetAndSave()
-		if err != nil {
-			catwalkURL := fmt.Sprintf("%s/v2/providers", cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL))
-			return nil, fmt.Errorf("Crush was unable to fetch an updated list of providers from %s. Consider setting CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1 to use the embedded providers bundled at the time of this Crush release. You can also update providers manually. For more info see crush update-providers --help. %w", catwalkURL, err) //nolint:staticcheck
-		}
-	}
-
+func loadProviders(client ProviderClient, etag, path string) ([]catwalk.Provider, error) {
+	slog.Info("Fetching providers from Catwalk.", "path", path)
+	providers, err := client.GetProviders(context.Background(), etag)
 	if err != nil {
+		return nil, fmt.Errorf("failed to fetch providers from catwalk: %w", err)
+	}
+	if len(providers) == 0 {
+		return nil, errors.New("empty providers list from catwalk")
+	}
+	if err := saveProvidersInCache(path, providers); err != nil {
 		return nil, err
 	}
-
-	providers = addOAuthProviders(providers)
 	return providers, nil
-}
-
-func isCacheStale(path string) (stale, exists bool) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return true, false
-	}
-	return time.Since(info.ModTime()) > 24*time.Hour, true
 }

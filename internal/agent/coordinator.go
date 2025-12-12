@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -48,6 +49,7 @@ type Coordinator interface {
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
 	QueuedPrompts(sessionID string) int
+	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string) error
 	Model() Model
@@ -98,7 +100,7 @@ func NewCoordinator(
 		return nil, err
 	}
 
-	agent, err := c.buildAgent(ctx, prompt, agentCfg)
+	agent, err := c.buildAgent(ctx, prompt, agentCfg, false)
 	if err != nil {
 		return nil, err
 	}
@@ -130,18 +132,42 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
 
-	return c.currentAgent.Run(ctx, SessionAgentCall{
-		SessionID:        sessionID,
-		Prompt:           prompt,
-		Attachments:      attachments,
-		MaxOutputTokens:  maxTokens,
-		ProviderOptions:  mergedOptions,
-		Temperature:      temp,
-		TopP:             topP,
-		TopK:             topK,
-		FrequencyPenalty: freqPenalty,
-		PresencePenalty:  presPenalty,
-	})
+	run := func() (*fantasy.AgentResult, error) {
+		return c.currentAgent.Run(ctx, SessionAgentCall{
+			SessionID:        sessionID,
+			Prompt:           prompt,
+			Attachments:      attachments,
+			MaxOutputTokens:  maxTokens,
+			ProviderOptions:  mergedOptions,
+			Temperature:      temp,
+			TopP:             topP,
+			TopK:             topK,
+			FrequencyPenalty: freqPenalty,
+			PresencePenalty:  presPenalty,
+		})
+	}
+	result, originalErr := run()
+
+	if c.isUnauthorized(originalErr) {
+		switch {
+		case providerCfg.OAuthToken != nil:
+			slog.Info("Received 401. Refreshing token and retrying", "provider", providerCfg.ID)
+			if err := c.refreshOAuth2Token(ctx, providerCfg); err != nil {
+				return nil, originalErr
+			}
+			slog.Info("Retrying request with refreshed OAuth token", "provider", providerCfg.ID)
+			return run()
+		case strings.Contains(providerCfg.APIKeyTemplate, "$"):
+			slog.Info("Received 401. Refreshing API Key template and retrying", "provider", providerCfg.ID)
+			if err := c.refreshApiKeyTemplate(ctx, providerCfg); err != nil {
+				return nil, originalErr
+			}
+			slog.Info("Retrying request with refreshed API key", "provider", providerCfg.ID)
+			return run()
+		}
+	}
+
+	return result, originalErr
 }
 
 func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {
@@ -274,7 +300,7 @@ func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderO
 	return modelOptions, temp, topP, topK, freqPenalty, presPenalty
 }
 
-func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent) (SessionAgent, error) {
+func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool) (SessionAgent, error) {
 	large, small, err := c.buildAgentModels(ctx)
 	if err != nil {
 		return nil, err
@@ -291,6 +317,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		small,
 		largeProviderCfg.SystemPromptPrefix,
 		systemPrompt,
+		isSubAgent,
 		c.cfg.Options.DisableAutoSummarize,
 		c.permissions.SkipRequests(),
 		c.sessions,
@@ -347,6 +374,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		tools.NewGrepTool(c.cfg.WorkingDir()),
 		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Tools.Ls),
 		tools.NewSourcegraphTool(nil),
+		tools.NewTodosTool(c.sessions),
 		tools.NewViewTool(c.lspClients, c.permissions, c.cfg.WorkingDir()),
 		tools.NewWriteTool(c.lspClients, c.permissions, c.history, c.cfg.WorkingDir()),
 	)
@@ -363,6 +391,12 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	}
 
 	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg.WorkingDir()) {
+		// Check MCP-specific disabled tools.
+		if mcpCfg, ok := c.cfg.MCP[tool.MCP()]; ok {
+			if slices.Contains(mcpCfg.DisabledTools, tool.MCPToolName()) {
+				continue
+			}
+		}
 		if agent.AllowedMCP == nil {
 			// No MCP restrictions
 			filteredTools = append(filteredTools, tool)
@@ -475,27 +509,15 @@ func (c *coordinator) buildAgentModels(ctx context.Context) (Model, Model, error
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
-	hasBearerAuth := false
-	for key := range headers {
-		if strings.ToLower(key) == "authorization" {
-			hasBearerAuth = true
-			break
-		}
-	}
-
-	isBearerToken := strings.HasPrefix(apiKey, "Bearer ")
-
 	var opts []anthropic.Option
-	if apiKey != "" && !hasBearerAuth {
-		if isBearerToken {
-			slog.Debug("API key starts with 'Bearer ', using as Authorization header")
-			headers["Authorization"] = apiKey
-			apiKey = "" // clear apiKey to avoid using X-Api-Key header
-		}
-	}
 
-	if apiKey != "" {
-		// Use standard X-Api-Key header
+	if strings.HasPrefix(apiKey, "Bearer ") {
+		// NOTE: Prevent the SDK from picking up the API key from env.
+		os.Setenv("ANTHROPIC_API_KEY", "")
+
+		headers["Authorization"] = apiKey
+	} else if apiKey != "" {
+		// X-Api-Key header
 		opts = append(opts, anthropic.WithAPIKey(apiKey))
 	}
 
@@ -692,6 +714,12 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case "google-vertex":
 		return c.buildGoogleVertexProvider(headers, providerCfg.ExtraParams)
 	case openaicompat.Name:
+		if providerCfg.ID == string(catwalk.InferenceProviderZAI) {
+			if providerCfg.ExtraBody == nil {
+				providerCfg.ExtraBody = map[string]any{}
+			}
+			providerCfg.ExtraBody["tool_stream"] = true
+		}
 		return c.buildOpenaiCompatProvider(baseURL, apiKey, headers, providerCfg.ExtraBody)
 	default:
 		return nil, fmt.Errorf("provider type not supported: %q", providerCfg.Type)
@@ -758,10 +786,46 @@ func (c *coordinator) QueuedPrompts(sessionID string) int {
 	return c.currentAgent.QueuedPrompts(sessionID)
 }
 
+func (c *coordinator) QueuedPromptsList(sessionID string) []string {
+	return c.currentAgent.QueuedPromptsList(sessionID)
+}
+
 func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 	providerCfg, ok := c.cfg.Providers.Get(c.currentAgent.Model().ModelCfg.Provider)
 	if !ok {
 		return errors.New("model provider not configured")
 	}
 	return c.currentAgent.Summarize(ctx, sessionID, getProviderOptions(c.currentAgent.Model(), providerCfg))
+}
+
+func (c *coordinator) isUnauthorized(err error) bool {
+	var providerErr *fantasy.ProviderError
+	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized
+}
+
+func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config.ProviderConfig) error {
+	if err := c.cfg.RefreshOAuthToken(ctx, providerCfg.ID); err != nil {
+		slog.Error("Failed to refresh OAuth token after 401 error", "provider", providerCfg.ID, "error", err)
+		return err
+	}
+	if err := c.UpdateModels(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *coordinator) refreshApiKeyTemplate(ctx context.Context, providerCfg config.ProviderConfig) error {
+	newAPIKey, err := c.cfg.Resolve(providerCfg.APIKeyTemplate)
+	if err != nil {
+		slog.Error("Failed to re-resolve API key after 401 error", "provider", providerCfg.ID, "error", err)
+		return err
+	}
+
+	providerCfg.APIKey = newAPIKey
+	c.cfg.Providers.Set(providerCfg.ID, providerCfg)
+
+	if err := c.UpdateModels(ctx); err != nil {
+		return err
+	}
+	return nil
 }

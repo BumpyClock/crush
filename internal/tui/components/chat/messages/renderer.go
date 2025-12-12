@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/ansiext"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/tui/components/chat/todos"
 	"github.com/charmbracelet/crush/internal/tui/components/core"
 	"github.com/charmbracelet/crush/internal/tui/highlight"
 	"github.com/charmbracelet/crush/internal/tui/styles"
@@ -51,6 +52,23 @@ var registry = renderRegistry{}
 
 // baseRenderer provides common functionality for all tool renderers
 type baseRenderer struct{}
+
+func (br baseRenderer) Render(v *toolCallCmp) string {
+	if v.result.Data != "" {
+		if strings.HasPrefix(v.result.MIMEType, "image/") {
+			return br.renderWithParams(v, v.call.Name, nil, func() string {
+				return renderImageContent(v, v.result.Data, v.result.MIMEType, v.result.Content)
+			})
+		}
+		return br.renderWithParams(v, v.call.Name, nil, func() string {
+			return renderMediaContent(v, v.result.MIMEType, v.result.Content)
+		})
+	}
+
+	return br.renderWithParams(v, v.call.Name, nil, func() string {
+		return renderPlainContent(v, v.result.Content)
+	})
+}
 
 // paramBuilder helps construct parameter lists for tool headers
 type paramBuilder struct {
@@ -174,11 +192,13 @@ func init() {
 	registry.register(tools.FetchToolName, func() renderer { return simpleFetchRenderer{} })
 	registry.register(tools.AgenticFetchToolName, func() renderer { return agenticFetchRenderer{} })
 	registry.register(tools.WebFetchToolName, func() renderer { return webFetchRenderer{} })
+	registry.register(tools.WebSearchToolName, func() renderer { return webSearchRenderer{} })
 	registry.register(tools.GlobToolName, func() renderer { return globRenderer{} })
 	registry.register(tools.GrepToolName, func() renderer { return grepRenderer{} })
 	registry.register(tools.LSToolName, func() renderer { return lsRenderer{} })
 	registry.register(tools.SourcegraphToolName, func() renderer { return sourcegraphRenderer{} })
 	registry.register(tools.DiagnosticsToolName, func() renderer { return diagnosticsRenderer{} })
+	registry.register(tools.TodosToolName, func() renderer { return todosRenderer{} })
 	registry.register(agent.AgentToolName, func() renderer { return agentRenderer{} })
 }
 
@@ -191,8 +211,18 @@ type genericRenderer struct {
 	baseRenderer
 }
 
-// Render displays the tool call with its raw input and plain content output
 func (gr genericRenderer) Render(v *toolCallCmp) string {
+	if v.result.Data != "" {
+		if strings.HasPrefix(v.result.MIMEType, "image/") {
+			return gr.renderWithParams(v, prettifyToolName(v.call.Name), []string{v.call.Input}, func() string {
+				return renderImageContent(v, v.result.Data, v.result.MIMEType, v.result.Content)
+			})
+		}
+		return gr.renderWithParams(v, prettifyToolName(v.call.Name), []string{v.call.Input}, func() string {
+			return renderMediaContent(v, v.result.MIMEType, v.result.Content)
+		})
+	}
+
 	return gr.renderWithParams(v, prettifyToolName(v.call.Name), []string{v.call.Input}, func() string {
 		return renderPlainContent(v, v.result.Content)
 	})
@@ -408,6 +438,10 @@ func (vr viewRenderer) Render(v *toolCallCmp) string {
 		build()
 
 	return vr.renderWithParams(v, "View", args, func() string {
+		if v.result.Data != "" && strings.HasPrefix(v.result.MIMEType, "image/") {
+			return renderImageContent(v, v.result.Data, v.result.MIMEType, "")
+		}
+
 		var meta tools.ViewResponseMetadata
 		if err := vr.unmarshalParams(v.result.Metadata, &meta); err != nil {
 			return renderPlainContent(v, v.result.Content)
@@ -605,15 +639,17 @@ type agenticFetchRenderer struct {
 	baseRenderer
 }
 
-// Render displays the fetched URL with prompt parameter and nested tool calls
+// Render displays the fetched URL or web search with prompt parameter and nested tool calls
 func (fr agenticFetchRenderer) Render(v *toolCallCmp) string {
 	t := styles.CurrentTheme()
 	var params tools.AgenticFetchParams
 	var args []string
 	if err := fr.unmarshalParams(v.call.Input, &params); err == nil {
-		args = newParamBuilder().
-			addMain(params.URL).
-			build()
+		if params.URL != "" {
+			args = newParamBuilder().
+				addMain(params.URL).
+				build()
+		}
 	}
 
 	prompt := params.Prompt
@@ -696,6 +732,30 @@ func (wfr webFetchRenderer) Render(v *toolCallCmp) string {
 	}
 
 	return wfr.renderWithParams(v, "Fetch", args, func() string {
+		return renderMarkdownContent(v, v.result.Content)
+	})
+}
+
+// -----------------------------------------------------------------------------
+//  Web search renderer
+// -----------------------------------------------------------------------------
+
+// webSearchRenderer handles web search with query display
+type webSearchRenderer struct {
+	baseRenderer
+}
+
+// Render displays a compact view of web_search with just the query
+func (wsr webSearchRenderer) Render(v *toolCallCmp) string {
+	var params tools.WebSearchParams
+	var args []string
+	if err := wsr.unmarshalParams(v.call.Input, &params); err == nil {
+		args = newParamBuilder().
+			addMain(params.Query).
+			build()
+	}
+
+	return wsr.renderWithParams(v, "Search", args, func() string {
 		return renderMarkdownContent(v, v.result.Content)
 	})
 }
@@ -1025,7 +1085,7 @@ func renderPlainContent(v *toolCallCmp, content string) string {
 		}
 		ln = ansiext.Escape(ln)
 		ln = " " + ln
-		if len(ln) > width {
+		if lipgloss.Width(ln) > width {
 			ln = v.fit(ln, width)
 		}
 		out = append(out, t.S().Muted.
@@ -1143,6 +1203,55 @@ func renderCodeContent(v *toolCallCmp, path, content string, offset int) string 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
+// renderImageContent renders image data with optional text content (for MCP tools).
+func renderImageContent(v *toolCallCmp, data, mediaType, textContent string) string {
+	t := styles.CurrentTheme()
+
+	dataSize := len(data) * 3 / 4
+	sizeStr := formatSize(dataSize)
+
+	loaded := t.S().Base.Foreground(t.Green).Render("Loaded")
+	arrow := t.S().Base.Foreground(t.GreenDark).Render("→")
+	typeStyled := t.S().Base.Render(mediaType)
+	sizeStyled := t.S().Subtle.Render(sizeStr)
+
+	imageDisplay := fmt.Sprintf("%s %s %s %s", loaded, arrow, typeStyled, sizeStyled)
+	if strings.TrimSpace(textContent) != "" {
+		textDisplay := renderPlainContent(v, textContent)
+		return lipgloss.JoinVertical(lipgloss.Left, textDisplay, "", imageDisplay)
+	}
+
+	return imageDisplay
+}
+
+// renderMediaContent renders non-image media content.
+func renderMediaContent(v *toolCallCmp, mediaType, textContent string) string {
+	t := styles.CurrentTheme()
+
+	loaded := t.S().Base.Foreground(t.Green).Render("Loaded")
+	arrow := t.S().Base.Foreground(t.GreenDark).Render("→")
+	typeStyled := t.S().Base.Render(mediaType)
+	mediaDisplay := fmt.Sprintf("%s %s %s", loaded, arrow, typeStyled)
+
+	if strings.TrimSpace(textContent) != "" {
+		textDisplay := renderPlainContent(v, textContent)
+		return lipgloss.JoinVertical(lipgloss.Left, textDisplay, "", mediaDisplay)
+	}
+
+	return mediaDisplay
+}
+
+// formatSize formats byte count as human-readable size.
+func formatSize(bytes int) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
+	}
+	return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+}
+
 func (v *toolCallCmp) renderToolError() string {
 	t := styles.CurrentTheme()
 	err := strings.ReplaceAll(v.result.Content, "\n", " ")
@@ -1180,7 +1289,9 @@ func prettifyToolName(name string) string {
 	case tools.AgenticFetchToolName:
 		return "Agentic Fetch"
 	case tools.WebFetchToolName:
-		return "Fetching"
+		return "Fetch"
+	case tools.WebSearchToolName:
+		return "Search"
 	case tools.GlobToolName:
 		return "Glob"
 	case tools.GrepToolName:
@@ -1189,6 +1300,8 @@ func prettifyToolName(name string) string {
 		return "List"
 	case tools.SourcegraphToolName:
 		return "Sourcegraph"
+	case tools.TodosToolName:
+		return "To-Do"
 	case tools.ViewToolName:
 		return "View"
 	case tools.WriteToolName:
@@ -1196,4 +1309,95 @@ func prettifyToolName(name string) string {
 	default:
 		return name
 	}
+}
+
+// -----------------------------------------------------------------------------
+//  Todos renderer
+// -----------------------------------------------------------------------------
+
+type todosRenderer struct {
+	baseRenderer
+}
+
+func (tr todosRenderer) Render(v *toolCallCmp) string {
+	t := styles.CurrentTheme()
+	var params tools.TodosParams
+	var meta tools.TodosResponseMetadata
+	var headerText string
+	var body string
+
+	// Parse params for pending state (before result is available).
+	if err := tr.unmarshalParams(v.call.Input, &params); err == nil {
+		completedCount := 0
+		inProgressTask := ""
+		for _, todo := range params.Todos {
+			if todo.Status == "completed" {
+				completedCount++
+			}
+			if todo.Status == "in_progress" {
+				if todo.ActiveForm != "" {
+					inProgressTask = todo.ActiveForm
+				} else {
+					inProgressTask = todo.Content
+				}
+			}
+		}
+
+		// Default display from params (used when pending or no metadata).
+		ratio := t.S().Base.Foreground(t.BlueDark).Render(fmt.Sprintf("%d/%d", completedCount, len(params.Todos)))
+		headerText = ratio
+		if inProgressTask != "" {
+			headerText = fmt.Sprintf("%s · %s", ratio, inProgressTask)
+		}
+
+		// If we have metadata, use it for richer display.
+		if v.result.Metadata != "" {
+			if err := tr.unmarshalParams(v.result.Metadata, &meta); err == nil {
+				if meta.IsNew {
+					if meta.JustStarted != "" {
+						headerText = fmt.Sprintf("created %d todos, starting first", meta.Total)
+					} else {
+						headerText = fmt.Sprintf("created %d todos", meta.Total)
+					}
+					body = todos.FormatTodosList(meta.Todos, styles.ArrowRightIcon, t, v.textWidth())
+				} else {
+					// Build header based on what changed.
+					hasCompleted := len(meta.JustCompleted) > 0
+					hasStarted := meta.JustStarted != ""
+					allCompleted := meta.Completed == meta.Total
+
+					ratio := t.S().Base.Foreground(t.BlueDark).Render(fmt.Sprintf("%d/%d", meta.Completed, meta.Total))
+					if hasCompleted && hasStarted {
+						text := t.S().Subtle.Render(fmt.Sprintf(" · completed %d, starting next", len(meta.JustCompleted)))
+						headerText = fmt.Sprintf("%s%s", ratio, text)
+					} else if hasCompleted {
+						text := t.S().Subtle.Render(fmt.Sprintf(" · completed %d", len(meta.JustCompleted)))
+						if allCompleted {
+							text = t.S().Subtle.Render(" · completed all")
+						}
+						headerText = fmt.Sprintf("%s%s", ratio, text)
+					} else if hasStarted {
+						headerText = fmt.Sprintf("%s%s", ratio, t.S().Subtle.Render(" · starting task"))
+					} else {
+						headerText = ratio
+					}
+
+					// Build body with details.
+					if allCompleted {
+						// Show all todos when all are completed, like when created
+						body = todos.FormatTodosList(meta.Todos, styles.ArrowRightIcon, t, v.textWidth())
+					} else if meta.JustStarted != "" {
+						body = t.S().Base.Foreground(t.GreenDark).Render(styles.ArrowRightIcon+" ") +
+							t.S().Base.Foreground(t.FgBase).Render(meta.JustStarted)
+					}
+				}
+			}
+		}
+	}
+
+	args := newParamBuilder().addMain(headerText).build()
+
+	return tr.renderWithParams(v, "To-Do", args, func() string {
+		return body
+	})
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/event"
-	termutil "github.com/charmbracelet/crush/internal/term"
+	"github.com/charmbracelet/crush/internal/stringext"
 	"github.com/charmbracelet/crush/internal/tui"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/fang"
@@ -43,6 +43,7 @@ func init() {
 		updateProvidersCmd,
 		logsCmd,
 		schemaCmd,
+		loginCmd,
 	)
 }
 
@@ -150,8 +151,20 @@ func Execute() {
 	}
 }
 
+// supportsProgressBar tries to determine whether the current terminal supports
+// progress bars by looking into environment variables.
+func supportsProgressBar() bool {
+	if !term.IsTerminal(os.Stderr.Fd()) {
+		return false
+	}
+	termProg := os.Getenv("TERM_PROGRAM")
+	_, isWindowsTerminal := os.LookupEnv("WT_SESSION")
+
+	return isWindowsTerminal || strings.Contains(strings.ToLower(termProg), "ghostty")
+}
+
 func setupAppWithProgressBar(cmd *cobra.Command) (*app.App, error) {
-	if termutil.SupportsProgressBar() {
+	if supportsProgressBar() {
 		_, _ = fmt.Fprintf(os.Stderr, ansi.SetIndeterminateProgressBar)
 		defer func() { _, _ = fmt.Fprintf(os.Stderr, ansi.ResetProgressBar) }()
 	}
@@ -226,7 +239,8 @@ func MaybePrependStdin(prompt string) (string, error) {
 	if err != nil {
 		return prompt, err
 	}
-	if fi.Mode()&os.ModeNamedPipe == 0 {
+	// Check if stdin is a named pipe ( | ) or regular file ( < ).
+	if fi.Mode()&os.ModeNamedPipe == 0 && !fi.Mode().IsRegular() {
 		return prompt, nil
 	}
 	bts, err := io.ReadAll(os.Stdin)
@@ -274,9 +288,5 @@ func shouldQueryTerminalVersion(env uv.Environ) bool {
 	return (!okTermProg && !okSSHTTY) ||
 		(!strings.Contains(termProg, "Apple") && !okSSHTTY) ||
 		// Terminals that do support XTVERSION.
-		strings.Contains(termType, "ghostty") ||
-		strings.Contains(termType, "wezterm") ||
-		strings.Contains(termType, "alacritty") ||
-		strings.Contains(termType, "kitty") ||
-		strings.Contains(termType, "rio")
+		stringext.ContainsAny(termType, "alacritty", "ghostty", "kitty", "rio", "wezterm")
 }

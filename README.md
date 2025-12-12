@@ -198,11 +198,11 @@ That said, you can also set environment variables for preferred providers.
 | `VERTEXAI_PROJECT`          | Google Cloud VertexAI (Gemini)                     |
 | `VERTEXAI_LOCATION`         | Google Cloud VertexAI (Gemini)                     |
 | `GROQ_API_KEY`              | Groq                                               |
-| `AWS_ACCESS_KEY_ID`         | AWS Bedrock (Claude)                               |
-| `AWS_SECRET_ACCESS_KEY`     | AWS Bedrock (Claude)                               |
-| `AWS_REGION`                | AWS Bedrock (Claude)                               |
-| `AWS_PROFILE`               | AWS Bedrock (Custom Profile)                       |
-| `AWS_BEARER_TOKEN_BEDROCK`  | AWS Bedrock                                        |
+| `AWS_ACCESS_KEY_ID`         | Amazon Bedrock (Claude)                               |
+| `AWS_SECRET_ACCESS_KEY`     | Amazon Bedrock (Claude)                               |
+| `AWS_REGION`                | Amazon Bedrock (Claude)                               |
+| `AWS_PROFILE`               | Amazon Bedrock (Custom Profile)                       |
+| `AWS_BEARER_TOKEN_BEDROCK`  | Amazon Bedrock                                        |
 | `AZURE_OPENAI_API_ENDPOINT` | Azure OpenAI models                                |
 | `AZURE_OPENAI_API_KEY`      | Azure OpenAI models (optional when using Entra ID) |
 | `AZURE_OPENAI_API_VERSION`  | Azure OpenAI models                                |
@@ -287,6 +287,7 @@ using `$(echo $VAR)` syntax.
       "args": ["/path/to/mcp-server.js"],
       "timeout": 120,
       "disabled": false,
+      "disabled_tools": ["some-tool-name"],
       "env": {
         "NODE_ENV": "production"
       }
@@ -296,6 +297,7 @@ using `$(echo $VAR)` syntax.
       "url": "https://api.githubcopilot.com/mcp/",
       "timeout": 120,
       "disabled": false,
+      "disabled_tools": ["create_issue", "create_pull_request"],
       "headers": {
         "Authorization": "Bearer $GH_PAT"
       }
@@ -347,6 +349,26 @@ permissions. Use this with care.
 You can also skip all permission prompts entirely by running Crush with the
 `--yolo` flag. Be very, very careful with this feature.
 
+### Disabling Built-In Tools
+
+If you'd like to prevent Crush from using certain built-in tools entirely, you
+can disable them via the `options.disabled_tools` list. Disabled tools are
+completely hidden from the agent.
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "disabled_tools": [
+      "bash",
+      "sourcegraph"
+    ]
+  }
+}
+```
+
+To disable tools from MCP servers, see the [MCP config section](#mcps).
+
 ### Initialization
 
 When you initialize a project, Crush analyzes your codebase and creates
@@ -386,11 +408,14 @@ it creates. You can customize this behavior with the `attribution` option:
 }
 ```
 
-- `trailer_style`: Controls the attribution trailer added to commit messages (default: `co-authored-by`)
-  - `co-authored-by`: Adds `Co-Authored-By: Crush <crush@charm.land>`
-  - `assisted-by`: Adds `Assisted-by: [Model Name] via Crush` (includes the model name)
-  - `none`: No attribution trailer
-- `generated_with`: When true (default), adds `💘 Generated with Crush` line to commit messages and PR descriptions
+- `trailer_style`: Controls the attribution trailer added to commit messages
+  (default: `assisted-by`)
+	- `assisted-by`: Adds `Assisted-by: [Model Name] via Crush <crush@charm.land>`
+	  (includes the model name)
+	- `co-authored-by`: Adds `Co-Authored-By: Crush <crush@charm.land>`
+	- `none`: No attribution trailer
+- `generated_with`: When true (default), adds `💘 Generated with Crush` line to
+  commit messages and PR descriptions
 
 ### Custom Providers
 

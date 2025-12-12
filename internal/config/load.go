@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"testing"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/csync"
@@ -133,6 +134,7 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 	knownProviderNames := make(map[string]bool)
 	restore := PushPopCrushEnv()
 	defer restore()
+
 	for _, p := range knownProviders {
 		knownProviderNames[string(p.ID)] = true
 		config, configExists := c.Providers.Get(string(p.ID))
@@ -185,6 +187,8 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 			Name:               p.Name,
 			BaseURL:            p.APIEndpoint,
 			APIKey:             p.APIKey,
+			APIKeyTemplate:     p.APIKey, // Store original template for re-resolution
+			OAuthToken:         config.OAuthToken,
 			Type:               p.Type,
 			Disable:            config.Disable,
 			SystemPromptPrefix: config.SystemPromptPrefix,
@@ -192,6 +196,10 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 			ExtraBody:          config.ExtraBody,
 			ExtraParams:        make(map[string]string),
 			Models:             p.Models,
+		}
+
+		if p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil {
+			prepared.SetupClaudeCode()
 		}
 
 		switch p.ID {
@@ -362,15 +370,19 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 
 	if c.Options.Attribution == nil {
 		c.Options.Attribution = &Attribution{
-			TrailerStyle:  TrailerStyleCoAuthoredBy,
+			TrailerStyle:  TrailerStyleAssistedBy,
 			GeneratedWith: true,
 		}
 	} else if c.Options.Attribution.TrailerStyle == "" {
 		// Migrate deprecated co_authored_by or apply default
-		if c.Options.Attribution.CoAuthoredBy != nil && !*c.Options.Attribution.CoAuthoredBy {
-			c.Options.Attribution.TrailerStyle = TrailerStyleNone
+		if c.Options.Attribution.CoAuthoredBy != nil {
+			if *c.Options.Attribution.CoAuthoredBy {
+				c.Options.Attribution.TrailerStyle = TrailerStyleCoAuthoredBy
+			} else {
+				c.Options.Attribution.TrailerStyle = TrailerStyleNone
+			}
 		} else {
-			c.Options.Attribution.TrailerStyle = TrailerStyleCoAuthoredBy
+			c.Options.Attribution.TrailerStyle = TrailerStyleAssistedBy
 		}
 	}
 	if c.Options.InitializeAs == "" {
@@ -670,7 +682,7 @@ func hasAWSCredentials(env env.Env) bool {
 		return true
 	}
 
-	if _, err := os.Stat(filepath.Join(home.Dir(), ".aws/credentials")); err == nil {
+	if _, err := os.Stat(filepath.Join(home.Dir(), ".aws/credentials")); err == nil && !testing.Testing() {
 		return true
 	}
 
