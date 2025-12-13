@@ -163,6 +163,7 @@ func (p *OAuthProvider) ToDisplayProvider() catwalk.Provider {
 		ID:                  catwalk.InferenceProvider(p.ID),
 		Name:                name,
 		Type:                p.Type,
+		APIEndpoint:         p.BaseURL,
 		Models:              oauthModels,
 		DefaultLargeModelID: defLarge,
 		DefaultSmallModelID: defSmall,

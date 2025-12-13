@@ -15,8 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	"github.com/charmbracelet/crush/internal/auth"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/fsext"
@@ -200,6 +202,50 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 
 		if p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil {
 			prepared.SetupClaudeCode()
+		}
+
+		// Setup OAuth providers (claudesub, github-copilot) using credentials from AuthManager.
+		if IsOAuthProvider(string(p.ID)) {
+			authManager := auth.NewAuthManager(GlobalDataDir())
+			switch string(p.ID) {
+			case "claudesub":
+				if authManager.HasClaudeSubAuth() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					token, err := authManager.GetValidAccessToken(ctx)
+					cancel()
+					if err != nil {
+						slog.Warn("Failed to get Claude subscription token, skipping provider", "error", err)
+						continue
+					}
+					prepared.APIKey = fmt.Sprintf("Bearer %s", token)
+					prepared.SystemPromptPrefix = "You are Claude Code, Anthropic's official CLI for Claude."
+					prepared.ExtraHeaders["anthropic-version"] = "2023-06-01"
+					value := prepared.ExtraHeaders["anthropic-beta"]
+					const want = "oauth-2025-04-20"
+					if !strings.Contains(value, want) {
+						if value != "" {
+							value += ","
+						}
+						value += want
+					}
+					prepared.ExtraHeaders["anthropic-beta"] = value
+				}
+			case "github-copilot":
+				if authManager.HasGithubCopilotAuth() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					token, err := authManager.GetValidGithubCopilotAccess(ctx)
+					cancel()
+					if err != nil {
+						slog.Warn("Failed to get GitHub Copilot token, skipping provider", "error", err)
+						continue
+					}
+					// Don't add "Bearer " prefix - OpenAI SDK adds it automatically
+					prepared.APIKey = token
+					prepared.ExtraHeaders["User-Agent"] = auth.GitHubUserAgent
+					prepared.ExtraHeaders["Editor-Version"] = auth.GitHubEditorVersion
+					prepared.ExtraHeaders["Editor-Plugin-Version"] = auth.GitHubPluginVersion
+				}
+			}
 		}
 
 		switch p.ID {
